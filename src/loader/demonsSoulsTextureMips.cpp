@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 
 #ifndef XBYAK_NO_EXCEPTION
 #define XBYAK_NO_EXCEPTION
@@ -33,12 +34,28 @@ namespace Loader::DemonsSoulsTextureMips {
 namespace {
 constexpr uint64_t PageSize = 0x4000, CaveOffset = 0x8000000 + 8 * PageSize;
 
-// 01.007.000 eboot+0xac5c8a (rdx: the texture): test r15d, r15d; setg r8b; test ecx, ecx; mov [r14 + 0x18], ecx; setne
-// r9b; and r9b, sil; and r9b, r8b; movzx esi, r9b; mov r9, [rdx + 0x78]; sub r15d, esi (the level more); mov rsi,
-// [rip + d] (the override's value pointer); mov esi, [rsi]; test esi, esi; cmovns r15d, esi.
-constexpr const char* Pick = "45 85 ff 41 0f 9f c0 85 c9 41 89 4e 18 41 0f 95 c1 41 20 f1 45 20 c1 41 0f b6 f1 4c 8b 4a 78 "
-                             "41 29 f7 48 8b 35 ?? ?? ?? ?? 8b 36 85 f6 44 0f 49 fe";
-constexpr uint64_t SiteOffset = 31; // sub r15d, esi (3 bytes) and mov rsi, [rip + d] (7) move to the stub
+// The pick, per build (rdx: the texture). 01.007.000 eboot+0xac5c8a: test r15d, r15d; setg r8b; test ecx, ecx; mov
+// [r14 + 0x18], ecx; setne r9b; and r9b, sil; and r9b, r8b; movzx esi, r9b; mov r9, [rdx + 0x78]; sub r15d, esi (the level
+// more); mov rsi, [rip + d] (the override's value pointer); mov esi, [rsi]; test esi, esi; cmovns r15d, esi. 01.005.000
+// eboot+0xaa8210 (another compiler): the same with the level in r13d, the part table's end in r8 (read after the site),
+// rbx the record; edi is loaded after the site before a use, so the stub's scratch is rdi there (r8 in 01.007.000).
+// The texture's layout is the same in both (0x288 bytes: + 0x264 .. + 0x274 written by its constructor, the T# at + 0xbc).
+struct PickBuild {
+	const char* version;
+	const char* pattern;
+	int         level, scratch; // Xbyak register indexes
+};
+constexpr PickBuild Picks[] = {
+    {"01.007.000",
+     "45 85 ff 41 0f 9f c0 85 c9 41 89 4e 18 41 0f 95 c1 41 20 f1 45 20 c1 41 0f b6 f1 4c 8b 4a 78 41 29 f7 48 8b 35 ?? ?? ?? "
+     "?? 8b 36 85 f6 44 0f 49 fe",
+     Xbyak::Operand::R15, Xbyak::Operand::R8},
+    {"01.005.000",
+     "45 85 ed 40 0f 9f c7 44 09 e1 41 0f 95 c0 89 4b 18 41 20 f0 41 20 f8 41 0f b6 f0 4c 8b 42 78 41 29 f5 48 8b 35 ?? ?? ?? "
+     "?? 8b 36 85 f6 44 0f 49 ee",
+     Xbyak::Operand::R13, Xbyak::Operand::RDI},
+};
+constexpr uint64_t SiteOffset = 31; // (both builds) sub r15d/r13d, esi (3 bytes) and mov rsi, [rip + d] (7) move to the stub
 constexpr uint32_t SiteSize   = 10;
 constexpr uint32_t Formats    = 512; // the T#'s format field: 9 bits
 
@@ -67,7 +84,14 @@ void Install(Program* program) {
 			            "KYTY_TEXTURE_REDUCE_GAME=1 leaves out the levels the GPU leaves out)\n");
 		return;
 	}
-	const auto pick = GuestCode::FindUnique(*program, GuestCode::Pattern(Pick));
+	std::optional<uint64_t> pick;
+	const PickBuild*        build = nullptr;
+	for (const auto& candidate: Picks) {
+		if ((pick = GuestCode::FindUnique(*program, GuestCode::Pattern(candidate.pattern)))) {
+			build = &candidate;
+			break;
+		}
+	}
 	if (!pick) {
 		std::printf("Demon's Souls texture streaming: the streamer is not of a known build; textures streamed whole\n");
 		return;
@@ -94,26 +118,29 @@ void Install(Program* program) {
 	Xbyak::ClearError();
 	Xbyak::CodeGenerator c(PageSize - Formats / 8, reinterpret_cast<void*>(allocated));
 	Xbyak::Label        keep;
-	// The level more, then the first level held past the levels left out. (esi and r8 are free: the code after the site
-	// loads both before a use.)
-	c.sub(r15d, esi);
-	c.cmp(r15d, levels);
+	// The level more, then the first level held past the levels left out. (esi and the scratch are free: the code after
+	// the site loads both before a use.)
+	const Xbyak::Reg32 level(build->level);
+	const Xbyak::Reg64 scratch(build->scratch);
+	const Xbyak::Reg32 scratch32(build->scratch);
+	c.sub(level, esi);
+	c.cmp(level, levels);
 	c.jge(keep);
 	c.cmp(dword[rdx + 0x26c], 1);
 	c.jne(keep);
 	c.cmp(dword[rdx + 0x274], levels);
 	c.jbe(keep);
 	c.mov(esi, dword[rdx + 0x264]);
-	c.mov(r8d, dword[rdx + 0x268]);
-	c.cmp(esi, r8d);
-	c.cmovb(esi, r8d);
+	c.mov(scratch32, dword[rdx + 0x268]);
+	c.cmp(esi, scratch32);
+	c.cmovb(esi, scratch32);
 	c.cmp(esi, 1024);
 	c.jb(keep);
 	c.mov(esi, dword[rdx + 0xc4]); // T# dword 2: the height less 1 at bits 14..27
 	c.shr(esi, 14);
 	c.and_(esi, 0x3fff);
 	c.inc(esi);
-	c.cmp(esi, r8d);
+	c.cmp(esi, scratch32);
 	c.jne(keep);
 	c.mov(esi, dword[rdx + 0xc8]); // dword 3: the type at bits 28..31 (9: 2D)
 	c.shr(esi, 28);
@@ -122,10 +149,10 @@ void Install(Program* program) {
 	c.mov(esi, dword[rdx + 0xc0]); // dword 1: the format at bits 20..28
 	c.shr(esi, 20);
 	c.and_(esi, Formats - 1);
-	c.mov(r8, reinterpret_cast<uint64_t>(formats));
-	c.bt(dword[r8], esi);
+	c.mov(scratch, reinterpret_cast<uint64_t>(formats));
+	c.bt(dword[scratch], esi);
 	c.jnc(keep);
-	c.mov(r15d, levels);
+	c.mov(level, levels);
 	// The moved load of the override's value pointer (its address now absolute) and back.
 	c.L(keep);
 	c.mov(rsi, override_pointer);
@@ -147,8 +174,8 @@ void Install(Program* program) {
 	std::memcpy(reinterpret_cast<void*>(site), code, sizeof(code));
 	Common::VirtualMemory::FlushInstructionCache(site, sizeof(code));
 	std::printf("Demon's Souls texture streaming: large block-compressed textures streamed without their %u largest "
-	            "level(s), as the GPU holds them (eboot+0x%llx; KYTY_TEXTURE_REDUCE_GAME=0 streams them whole)\n",
-	            levels, static_cast<unsigned long long>(site - program->base_vaddr));
+	            "level(s), as the GPU holds them (%s, eboot+0x%llx; KYTY_TEXTURE_REDUCE_GAME=0 streams them whole)\n",
+	            levels, build->version, static_cast<unsigned long long>(site - program->base_vaddr));
 #endif
 }
 

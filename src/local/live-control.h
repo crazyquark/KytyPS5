@@ -29,6 +29,8 @@
 #include "live-counters.h"
 #include "live-trace.h"
 #include "libs/controller.h"
+#include "libs/ime.h"
+#include "libs/imeDialog.h"
 #include "loader/demonsSoulsWarp.h"
 #include "local-platform.h"
 #include "perf-overlay.h"
@@ -619,6 +621,29 @@ inline void Run(uint64_t id, const std::string& line) {
 		while (!text.empty() && (text.back() == '\r' || text.back() == ' ')) text.pop_back();
 		const bool ok = Loader::DemonsSoulsWarp::QueueCommand(text);
 		std::printf("LIVE_GAMECMD id=%" PRIu64 " queued=%d text=%s\n", id, ok ? 1 : 0, text.c_str());
+	} else if (cmd == "imetext" && n >= 2) {
+		// imetext <text>: an open system keyboard (the game's ImeDialog, else the core IME) given the text (ASCII) and
+		// accepted, as typed and confirmed: scripted runs get past a name entry (Demon's Souls' character creation).
+		auto text = line.substr(line.find("imetext") + 7);
+		text.erase(0, text.find_first_not_of(' '));
+		while (!text.empty() && (text.back() == '\r' || text.back() == ' ')) text.pop_back();
+		const std::u16string typed(text.begin(), text.end());
+		Libs::ImeCommon::HostSnapshot snapshot {};
+		const char*                   which = "none";
+		bool                          ok    = false;
+		if (Libs::Dialog::ImeDialog::GetHostSnapshot(&snapshot)) {
+			which = "dialog";
+			ok    = Libs::Dialog::ImeDialog::HostInsertText(snapshot.generation, typed) &&
+			     Libs::Dialog::ImeDialog::HostAccept(snapshot.generation);
+		} else if (Libs::Ime::GetHostSnapshot(&snapshot)) {
+			which = "ime";
+			ok    = Libs::Ime::HostInsertText(snapshot.generation, typed) && Libs::Ime::HostAccept(snapshot.generation);
+		}
+		std::printf("LIVE_IMETEXT id=%" PRIu64 " keyboard=%s ok=%d text=%s\n", id, which, ok ? 1 : 0, text.c_str());
+	} else if (cmd == "player") {
+		// player: the build the game's code is of (01.007.000, 01.005.000) and the player loaded and its place, for scripts
+		// that wait for the game (tools/local/deck/deckbench.py) without a build's addresses of their own.
+		std::printf("LIVE_PLAYER id=%" PRIu64 " %s\n", id, Loader::DemonsSoulsWarp::PlayerReport().c_str());
 	} else if (cmd == "gamekill" && n >= 2) {
 		// gamekill <radius m>: the characters within it of the player die (loader/demonsSoulsWarp.h; log "Game kill: ...").
 		using Mode    = Loader::DemonsSoulsWarp::KillMode;

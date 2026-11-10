@@ -43,6 +43,9 @@ double Glide(float x, float y, float z, float speed);
 // reads the pad, through the engine's own command entry (the one its debug "golden path" helper calls). False: another
 // build (nothing queued).
 bool QueueCommand(std::string_view text);
+// Live `player`: the build whose player the loaded code proves (01.007.000, 01.005.000), whether a player is loaded and
+// its place: "build=<version|none> in_game=<0|1> man=... chr=... ctrl=... body=... pos=x,y,z".
+std::string PlayerReport();
 // Live `gamekill RADIUS` (01.007.000, automated tours): the characters but the player within RADIUS m of it that still
 // have HP die the way +cp11_allSuicideExceptPlayer kills every character (the game's suicide of a ChrIns), on the
 // game's pad-reading thread as a queued command; a boss of 1000 HP or more within 40 m widens it to 60 m (a boss dies with

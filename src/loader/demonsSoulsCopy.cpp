@@ -82,9 +82,13 @@ struct Body {
 	const char* build;
 	uint64_t    offset, size, hash;
 };
-constexpr std::array<Body, 2> Bodies {{
+constexpr std::array<Body, 3> Bodies {{
     {"01.007.000", 0x3c36, 2048, 0xe654325b8be848a9ull},
     {"01.005.000", 0x3d06, 1705, 0xc4be692ee02e9f77ull}, // an older body (another small-size table), the same entries
+    // Another 01.005.000 dump's libc.prx (sha1 8e7f6852...): the same 1705-byte body at 0x3986, its entries bcopy 0x38d0
+    // (arguments swapped), memmove 0x3910 and memcpy 0x3950 (each pushes rbp); its 17-entry size table lands in
+    // 0x3f4b..0x4025, nothing in the 13 bytes replaced.
+    {"01.005.000", 0x3986, 1705, 0x62b00b487e6f61ddull},
 }};
 } // namespace
 

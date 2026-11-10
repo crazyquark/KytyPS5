@@ -264,26 +264,73 @@ bool Peek(uint64_t address, T* out) {
 	return address >= 0x10000 && Common::GuardedCopy(out, reinterpret_cast<const void*>(address), sizeof(T)) == 0;
 }
 
-// 01.007.000's IsLocalPlayer: lea rax, [ChrInsMan pointer]; mov rax, [rax]; cmp [rax + 0x258], rdi; sete al; ret.
-bool IsPlayerBuild() {
-	static constexpr uint8_t IsLocalPlayer[] = {0x48, 0x8d, 0x05, 0xc1, 0x45, 0x4a, 0x02, 0x48, 0x8b, 0x00, 0x48,
-	                                            0x39, 0xb8, 0x58, 0x02, 0x00, 0x00, 0x0f, 0x94, 0xc0, 0xc3};
-	uint8_t code[sizeof(IsLocalPlayer)] {};
-	return Peek(0x90032adb0, &code) && std::memcmp(code, IsLocalPlayer, sizeof(code)) == 0;
+// The player and the engine command entry in the builds known (glide, the player's place, live `player` and `gamecmd`;
+// the kill commands stay 01.007.000's, IsKillBuild). Each is used only once the loaded code proves it:
+// - IsLocalPlayer: lea rax, [ChrInsMan pointer]; mov rax, [rax]; cmp [rax + player_at], rdi; sete al; ret. Its lea must
+//   reach chr_ins_man and its compare read player_at. The player ChrIns: [[chr_ins_man] + player_at]; its controller
+//   [chr + ctrl_at], the body (position at +0x20, angles at +0x10) [ctrl + body_at].
+// - The engine's command entry: console = [command_console], Execute(console, "+name args") at command_entry, as the
+//   debug helper calls it ("+cp11_unlockArchstone 1 2 true", "+cp11_playerLoad ..."); its first call site (e8 rel32) must
+//   reach command_entry.
+// 01.005.000's, from its eboot: IsLocalPlayer at 0x900320a10 (the player at +0x278 there, +0x258 in 01.007.000); the
+// helper's calls at 0x900769442 (rdi = [0x902fb1868], rsi = "+cp11_unlockArchstone...", call 0x9007fffc0).
+struct Build {
+	const char* version;
+	uint64_t    is_local_player, chr_ins_man;
+	uint32_t    player_at, ctrl_at, body_at;
+	uint64_t    command_entry, command_console, command_call_site;
+};
+constexpr Build Builds[] = {
+    {"01.007.000", 0x90032adb0, 0x9027cf378, 0x258, 0x38, 0x20, 0x90081a990, 0x902ee4ee8, 0x900780bd2},
+    {"01.005.000", 0x900320a10, 0x902898070, 0x278, 0x38, 0x20, 0x9007fffc0, 0x902fb1868, 0x900769442},
+};
+
+bool ProvesPlayer(const Build& build) {
+	uint8_t code[21] {};
+	if (!Peek(build.is_local_player, &code)) return false;
+	static constexpr uint8_t Lea[] = {0x48, 0x8d, 0x05}, Rest[] = {0x48, 0x8b, 0x00, 0x48, 0x39, 0xb8};
+	static constexpr uint8_t End[] = {0x0f, 0x94, 0xc0, 0xc3};
+	int32_t  relative = 0;
+	uint32_t field    = 0;
+	std::memcpy(&relative, code + 3, sizeof(relative));
+	std::memcpy(&field, code + 13, sizeof(field));
+	return std::memcmp(code, Lea, sizeof(Lea)) == 0 && std::memcmp(code + 7, Rest, sizeof(Rest)) == 0 &&
+	       std::memcmp(code + 17, End, sizeof(End)) == 0 &&
+	       build.is_local_player + 7 + static_cast<int64_t>(relative) == build.chr_ins_man && field == build.player_at;
 }
 
-// 01.007.000's engine command entry: console = [0x902ee4ee8], Execute(console, "+name args") at 0x90081a990, called so
-// by the debug helper at 0x900780bc0 ("+cp11_unlockArchstone 1 2 true", "+cp11_playerLoad ..."); its first call site
-// (0x900780bd2: e8 rel32) identifies the build.
-constexpr uint64_t CommandEntry    = 0x90081a990;
-constexpr uint64_t CommandConsole  = 0x902ee4ee8;
-constexpr uint64_t CommandCallSite = 0x900780bd2;
-bool               IsCommandBuild() {
+bool ProvesCommand(const Build& build) {
 	uint8_t code[5] {};
-	if (!Peek(CommandCallSite, &code) || code[0] != 0xe8) return false;
+	if (!Peek(build.command_call_site, &code) || code[0] != 0xe8) return false;
 	int32_t relative = 0;
 	std::memcpy(&relative, code + 1, sizeof(relative));
-	return CommandCallSite + 5 + static_cast<int64_t>(relative) == CommandEntry;
+	return build.command_call_site + 5 + static_cast<int64_t>(relative) == build.command_entry;
+}
+
+// The build whose player (or command entry) the loaded code proves; nullptr: none (another build, or the eboot not
+// mapped yet: a miss is not kept, the code is read again next time).
+const Build* FindBuild(bool (*proves)(const Build&), std::atomic<const Build*>& found) {
+	if (const auto* build = found.load(std::memory_order_acquire)) return build;
+	for (const auto& build: Builds) {
+		if (proves(build)) {
+			found.store(&build, std::memory_order_release);
+			return &build;
+		}
+	}
+	return nullptr;
+}
+std::atomic<const Build*> g_player_build {nullptr}, g_command_build {nullptr};
+const Build*              PlayerBuild() {
+	return FindBuild(ProvesPlayer, g_player_build);
+}
+const Build* CommandBuild() {
+	return FindBuild(ProvesCommand, g_command_build);
+}
+bool IsPlayerBuild() {
+	return PlayerBuild() != nullptr;
+}
+bool IsCommandBuild() {
+	return CommandBuild() != nullptr;
 }
 
 std::mutex        g_command_mutex;
@@ -381,8 +428,10 @@ void RunKill(float radius, KillMode mode) {
 // MSB and save coordinates). ChrCtrl +0xfc is a warp request the game applies the next frame (and clears): position
 // at +0x100, angles at +0x110, the request byte written last.
 bool FindPlayer(uint64_t* ctrl, uint64_t* body) {
-	uint64_t man = 0, chr = 0;
-	return Peek(0x9027cf378, &man) && Peek(man + 0x258, &chr) && Peek(chr + 0x38, ctrl) && Peek(*ctrl + 0x20, body);
+	const auto* build = PlayerBuild();
+	uint64_t    man = 0, chr = 0;
+	return build != nullptr && Peek(build->chr_ins_man, &man) && man != 0 && Peek(man + build->player_at, &chr) && chr != 0 &&
+	       Peek(chr + build->ctrl_at, ctrl) && *ctrl != 0 && Peek(*ctrl + build->body_at, body) && *body != 0;
 }
 
 // Glide: the warp request every 16 ms along a straight line (the game moves the player as if walking, without input).
@@ -442,6 +491,27 @@ bool QueueCommand(std::string_view text) {
 #endif
 }
 
+std::string PlayerReport() {
+#if defined(_WIN32) || defined(__linux__)
+	const auto* build = PlayerBuild();
+	if (build == nullptr) return "build=none in_game=0";
+	uint64_t man = 0, chr = 0, ctrl = 0, body = 0;
+	float    at[3] {};
+	(void)(Peek(build->chr_ins_man, &man) && man != 0 && Peek(man + build->player_at, &chr) && chr != 0 &&
+	       Peek(chr + build->ctrl_at, &ctrl) && ctrl != 0 && Peek(ctrl + build->body_at, &body));
+	const bool in_game = body != 0 && Peek(body + 0x20, &at) && std::isfinite(at[0]) && std::isfinite(at[1]) &&
+	                     std::isfinite(at[2]);
+	char text[256];
+	std::snprintf(text, sizeof(text), "build=%s in_game=%d man=0x%llx chr=0x%llx ctrl=0x%llx body=0x%llx pos=%.3f,%.3f,%.3f",
+	              build->version, in_game ? 1 : 0, static_cast<unsigned long long>(man), static_cast<unsigned long long>(chr),
+	              static_cast<unsigned long long>(ctrl), static_cast<unsigned long long>(body), in_game ? at[0] : 0.0,
+	              in_game ? at[1] : 0.0, in_game ? at[2] : 0.0);
+	return text;
+#else
+	return "build=none in_game=0";
+#endif
+}
+
 bool QueueKill(float radius, KillMode mode) {
 #if defined(_WIN32) || defined(__linux__)
 	if (!(radius > 0) || !IsPlayerBuild() || !IsKillBuild() || (mode == KillMode::Death && !IsDeathBuild())) return false;
@@ -466,15 +536,16 @@ void RunQueuedCommand() {
 		text = std::move(g_command);
 		g_command_pending.store(false, std::memory_order_relaxed);
 	}
-	uint64_t console = 0;
-	if (!IsCommandBuild() || !Peek(CommandConsole, &console) || console == 0) {
+	uint64_t    console = 0;
+	const auto* build   = CommandBuild();
+	if (build == nullptr || !Peek(build->command_console, &console) || console == 0) {
 		std::printf("Game command not run (no console): %s\n", text.c_str());
 		return;
 	}
 	using Execute = KYTY_SYSV_ABI uint64_t (*)(uint64_t console, const char* text);
-	std::printf("Game command: %s\n", text.c_str());
+	std::printf("Game command (%s): %s\n", build->version, text.c_str());
 	std::fflush(stdout);
-	(void)reinterpret_cast<Execute>(CommandEntry)(console, text.c_str());
+	(void)reinterpret_cast<Execute>(build->command_entry)(console, text.c_str());
 #endif
 }
 

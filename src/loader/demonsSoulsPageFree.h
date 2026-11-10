@@ -33,17 +33,29 @@ void Clear();
 // buffer over a freed block and others free too.
 bool FreeBlocksIn(uint64_t begin, uint64_t end, std::vector<std::pair<uint64_t, uint64_t>>* blocks);
 
-// The engine's free of a block as 01.007.000 has it (01.005.000, built by another compiler, has other code): the prologue
-// (push rbp; mov rbp, rsp; push r15; push r14; push rbx; sub rsp, 0x18), the stack guard load, the block descriptor kept
-// in rbx, the spin on the allocator's lock (its address the cmp's RIP-relative operand at LockOperandAt); at StatsLoadAt
-// the load of the allocator's statistics object (RIP-relative), then the descriptor's unlink and its pool's index.
-inline constexpr std::string_view FreeBlock = "55 48 89 e5 41 57 41 56 53 48 83 ec 18 4c 8b 35 ?? ?? ?? ?? 48 89 fb 49 c7 c7 ff "
-                                              "ff ff ff 31 c9 49 8b 06 48 89 45 e0 48 83 3d ?? ?? ?? ?? 00 74";
-inline constexpr std::string_view FreeBlockBody =
-    "48 8b 05 ?? ?? ?? ?? 48 8d 73 20 0f b6 4b 70 48 c7 43 20 00 00 00 00 4c 8b 4b 28 4c 8b 43 30 48 8d 14 89";
-inline constexpr size_t FreeBlockBodyAt = 0x97;
-inline constexpr size_t LockOperandAt = 0x2a, LockOperandEnd = 0x2f; // cmp qword [rip + d], 0: d at +0x2a, next at +0x2f
-inline constexpr size_t StatsOperandAt = 0x9a, StatsOperandEnd = 0x9e; // mov rax, [rip + d]
+// The engine's free of a block, per build: the prologue (01.007.000: push rbp; mov rbp, rsp; push r15; push r14; push rbx;
+// sub rsp, 0x18; 01.005.000 pushes r12 too and takes 0x20), the stack guard load, the block descriptor kept in rbx, the
+// spin on the allocator's lock (its address the cmp's RIP-relative operand at lock_at, the instruction ending at
+// lock_end); at body_at the load of the allocator's statistics object (RIP-relative, its operand at StatsOperandAt),
+// then the descriptor's unlink and its pool's index. The descriptor and pool layouts below are the same in both.
+struct FreeBlockBuild {
+	const char*      version;
+	std::string_view head, body;
+	size_t           body_at, lock_at, lock_end;
+};
+inline constexpr FreeBlockBuild FreeBlockBuilds[] = {
+    {"01.007.000",
+     "55 48 89 e5 41 57 41 56 53 48 83 ec 18 4c 8b 35 ?? ?? ?? ?? 48 89 fb 49 c7 c7 ff ff ff ff 31 c9 49 8b 06 48 89 45 e0 48 "
+     "83 3d ?? ?? ?? ?? 00 74",
+     "48 8b 05 ?? ?? ?? ?? 48 8d 73 20 0f b6 4b 70 48 c7 43 20 00 00 00 00 4c 8b 4b 28 4c 8b 43 30 48 8d 14 89", 0x97, 0x2a,
+     0x2f},
+    {"01.005.000",
+     "55 48 89 e5 41 57 41 56 41 54 53 48 83 ec 20 4c 8b 35 ?? ?? ?? ?? 48 89 fb 49 c7 c7 ff ff ff ff 31 c9 49 8b 06 48 89 45 "
+     "d8 48 83 3d ?? ?? ?? ?? 00 74",
+     "48 8b 05 ?? ?? ?? ?? 4c 8d 43 20 0f b6 4b 70 48 c7 43 20 00 00 00 00 48 8b 7b 28 48 8b 73 30 48 8d 14 89", 0x97, 0x2c,
+     0x31},
+};
+inline constexpr size_t StatsOperandAt = 0x3, StatsOperandEnd = 0x7; // from body_at: mov rax, [rip + d]
 inline constexpr size_t MovedPrologue = 6; // push rbp; mov rbp, rsp; push r15: run by the count hook's thunk
 // A block descriptor: size at +0x50, mapped bytes at +0x58, address at +0x60; its allocator list node at +0x20 (the node's
 // owner, the descriptor, at +0x20; the next node at +0x30; the list's head at +0x38).

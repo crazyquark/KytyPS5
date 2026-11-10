@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -594,18 +595,29 @@ void Install(Program* program) {
 	    program->file_name.filename() != "eboot.bin" || program->mapped_size > CaveOffset ||
 	    program->base_vaddr > UINT64_MAX - CaveOffset - PageSize)
 		return;
-	const auto found = GuestCode::FindUnique(*program, GuestCode::Pattern(FreeBlock));
-	const GuestCode::Pattern body(FreeBlockBody);
-	if (!found || !Libs::Graphics::HostMemoryRangeIsReadable(*found + FreeBlockBodyAt, body.Size()) ||
-	    !body.Matches(reinterpret_cast<const uint8_t*>(*found + FreeBlockBodyAt))) {
+	std::optional<uint64_t> found;
+	const FreeBlockBuild*   build = nullptr;
+	for (const auto& candidate: FreeBlockBuilds) {
+		const auto               at = GuestCode::FindUnique(*program, GuestCode::Pattern(candidate.head));
+		const GuestCode::Pattern body(candidate.body);
+		if (at && Libs::Graphics::HostMemoryRangeIsReadable(*at + candidate.body_at, body.Size()) &&
+		    body.Matches(reinterpret_cast<const uint8_t*>(*at + candidate.body_at))) {
+			found = at;
+			build = &candidate;
+			break;
+		}
+	}
+	if (!found) {
 		std::printf("Engine frees: no page allocator free of a known build found; retaining guest code\n");
 		return;
 	}
 	int32_t lock_displacement = 0, stats_displacement = 0;
-	std::memcpy(&lock_displacement, reinterpret_cast<const void*>(*found + LockOperandAt), sizeof(lock_displacement));
-	std::memcpy(&stats_displacement, reinterpret_cast<const void*>(*found + StatsOperandAt), sizeof(stats_displacement));
-	g_lock         = *found + LockOperandEnd + static_cast<int64_t>(lock_displacement);
-	g_stats_global = *found + StatsOperandEnd + static_cast<int64_t>(stats_displacement);
+	std::memcpy(&lock_displacement, reinterpret_cast<const void*>(*found + build->lock_at), sizeof(lock_displacement));
+	std::memcpy(&stats_displacement, reinterpret_cast<const void*>(*found + build->body_at + StatsOperandAt),
+	            sizeof(stats_displacement));
+	g_lock         = *found + build->lock_end + static_cast<int64_t>(lock_displacement);
+	g_stats_global = *found + build->body_at + StatsOperandEnd + static_cast<int64_t>(stats_displacement);
+	std::printf("Engine frees: the page allocator's free of %s\n", build->version);
 	site           = *found;
 	if (GetMode() == Mode::Walk || GetMode() == Mode::GiveBack) {
 		std::thread(WalkerThread).detach();
