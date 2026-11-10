@@ -26,7 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import gpumetrics  # noqa: E402
 
 HOME = Path.home()
-GAME = HOME / 'Games' / 'PPSA01341-app0.zar'
+# The game: KYTY_GAME, else ~/Games/PPSA01341-app0.zar, else the folder ~/Games/PPSA01341-app0 (as run-deck.sh finds it).
+GAME = Path(os.environ['KYTY_GAME']) if os.environ.get('KYTY_GAME') else next(
+    (p for p in (HOME / 'Games' / 'PPSA01341-app0.zar', HOME / 'Games' / 'PPSA01341-app0') if p.exists()),
+    HOME / 'Games' / 'PPSA01341-app0.zar')
 UNIT = 'kyty-bench'
 CHR_INS_MAN = 0x9027cf378  # 01.007.000: the player chain (padboot.py)
 OPTIONS, CROSS = 0x8, 0x4000
@@ -99,7 +102,21 @@ class Live:
                 return struct.unpack('<Q', data)[0] if len(data) == 8 else 0
         return 0
 
+    def player(self):
+        # Live `player` (builds since 2026-11-09: 01.007.000 and 01.005.000): {'build', 'in_game', 'pos', ...}; None from
+        # an older build, which has no such command (then the 01.007.000 peeks below).
+        for line in self.send(['player'], timeout=10):
+            if line.startswith('LIVE_PLAYER'):
+                fields = dict(item.split('=', 1) for item in line.split()[1:] if '=' in item)
+                fields['in_game'] = fields.get('in_game') == '1'
+                fields['pos'] = tuple(float(v) for v in fields.get('pos', '0,0,0').split(','))
+                return fields
+        return None
+
     def in_game(self):
+        answer = self.player()
+        if answer is not None:
+            return answer['in_game']
         p = self.peek(CHR_INS_MAN)
         c = self.peek(p + 0x258) if plausible(p) else 0
         k = self.peek(c + 0x38) if plausible(c) else 0
@@ -107,6 +124,9 @@ class Live:
 
     def position(self):
         # The player's position (H+0x20, three floats), None outside the game.
+        answer = self.player()
+        if answer is not None:
+            return answer['pos'] if answer['in_game'] else None
         p = self.peek(CHR_INS_MAN)
         c = self.peek(p + 0x258) if plausible(p) else 0
         k = self.peek(c + 0x38) if plausible(c) else 0
