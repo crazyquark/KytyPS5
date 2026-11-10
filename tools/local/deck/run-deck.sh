@@ -14,6 +14,8 @@
 #   KYTY_DECK_SUN_SHADOWS=off   no sun shadows (fastest, but the sun lights the character in dark places)
 #   KYTY_DECK_DECALS=1          projected decals back on (~7% slower)
 #   KYTY_RENDER_HEIGHT=432      a sharper 3D (768x432; ~5% slower than 360)
+#   KYTY_UPSCALER=none          the game's TAA instead of FSR 3 (~20% faster where the GPU bounds the frame: 1.07's
+#                               Nexus 32.5 -> 39.9 fps; the same where the CPU does)
 #   KYTY_FPS_HUD=0              no frame-rate panel at the top right (F8 switches it)
 #   KYTY_HIDE_CURSOR=0          the cursor shows when the mouse moves
 #   KYTY_CONSOLE_LANGUAGE=<n>   the console's language (1 English, the default; 0 Japanese)
@@ -37,6 +39,10 @@ fi
 export KYTY_GAME
 export KYTY_RENDER_HEIGHT="${KYTY_RENDER_HEIGHT:-360}"
 export KYTY_HD_OUTPUT=1
+# FSR 3 in place of the game's TAA: its PS5 Pro path, the 3D upscaled to the 1080p output (01.007.000 only: other builds
+# have no such path and keep the TAA).
+export KYTY_UPSCALER="${KYTY_UPSCALER:-fsr}"
+[ "$KYTY_UPSCALER" = none ] && unset KYTY_UPSCALER
 export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-2}"
 deck_convars="r_forceViewportHeightForPixelSizeCalc=480;r_enableAmbientShadowing=false;r_enableSpotShadows=false"
 [ "${KYTY_DECK_DECALS:-0}" = 1 ] || deck_convars="$deck_convars;r_projectedDecalEnable=false"
