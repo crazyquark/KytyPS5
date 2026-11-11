@@ -178,6 +178,19 @@ endif()
 
 option(KYTY_BUILD_LAUNCHER "Build Qt launcher" ON)
 
+# Windows: the emulator's operator new/delete from mimalloc under KYTY_SPECULATE=4 (src/main.cpp; KYTY_MIMALLOC=0 / 1
+# at run time chooses the CRT heap / mimalloc; mode 0 keeps the CRT heap). Vendored: 3rdparty/mimalloc, v2.5.2.
+# (Linux: not built; preload libmimalloc.so instead.)
+if(WIN32)
+	set(kyty_mimalloc_default ON)
+else()
+	set(kyty_mimalloc_default OFF)
+endif()
+option(KYTY_MIMALLOC "Windows: operator new/delete from mimalloc (vendored, v2.5.2)" ${kyty_mimalloc_default})
+if(KYTY_MIMALLOC AND NOT WIN32)
+	message(FATAL_ERROR "KYTY_MIMALLOC is Windows-only (src/main.cpp); on Linux preload libmimalloc.so")
+endif()
+
 # A build for the Steam Deck (tools/local/deck/build-deck.sh: -march=znver2, Linux): KYTY_STEAM_DECK=1 in the code
 # selects its defaults and code paths: four Zen 2 cores, an RDNA 2 GPU of 8 compute units, 16 GB of memory the two
 # share.
@@ -187,6 +200,18 @@ if(KYTY_STEAM_DECK)
 endif()
 
 config_compiler_and_linker()
+
+# KYTY_PGO_GENERATE's counters: fe, clang's front-end kind, or ir, LLVM's IR-level kind. KYTY_PGO_USE reads either
+# (llvm-profdata files of the two kinds don't merge, so a profile is trained all in one kind).
+set(KYTY_PGO_KIND "fe" CACHE STRING "Instrumented build's profile kind: fe or ir")
+set_property(CACHE KYTY_PGO_KIND PROPERTY STRINGS fe ir)
+if(KYTY_PGO_KIND STREQUAL "ir")
+	set(kyty_pgo_generate_flag -fprofile-generate)
+elseif(KYTY_PGO_KIND STREQUAL "fe")
+	set(kyty_pgo_generate_flag -fprofile-instr-generate)
+else()
+	message(FATAL_ERROR "KYTY_PGO_KIND: fe or ir, not ${KYTY_PGO_KIND}")
+endif()
 
 if(KYTY_CLANG_CL)
 	# The Linux release is built with -O3 -march=native, ThinLTO and a PGO profile; the same for
@@ -212,7 +237,7 @@ if(KYTY_CLANG_CL)
 			message(FATAL_ERROR "KYTY_PGO_GENERATE: clang_rt.profile-x86_64.lib not found next to ${CMAKE_CXX_COMPILER}")
 		endif()
 		list(GET kyty_profile_runtime 0 kyty_profile_runtime)
-		add_compile_options(-fprofile-instr-generate)
+		add_compile_options(${kyty_pgo_generate_flag})
 		add_compile_definitions(KYTY_PGO_GENERATE=1)
 		link_libraries("${kyty_profile_runtime}")
 	elseif(KYTY_PGO_USE)
@@ -224,8 +249,8 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	option(KYTY_PGO_GENERATE "Instrumented build; the live command `pgo <file>` writes the profile" OFF)
 	set(KYTY_PGO_USE "" CACHE FILEPATH "llvm-profdata output to optimize with (empty: none)")
 	if(KYTY_PGO_GENERATE)
-		add_compile_options(-fprofile-instr-generate)
-		add_link_options(-fprofile-instr-generate)
+		add_compile_options(${kyty_pgo_generate_flag})
+		add_link_options(${kyty_pgo_generate_flag})
 		add_compile_definitions(KYTY_PGO_GENERATE=1)
 	elseif(KYTY_PGO_USE)
 		add_compile_options("-fprofile-instr-use=${KYTY_PGO_USE}" -Wno-profile-instr-unprofiled
@@ -899,6 +924,7 @@ endif()
 if(LINUX)
 	set_property(SOURCE
 		"${KYTY_SOURCE_DIR}/graphics/guest_gpu/graphicsRun.cpp"
+		"${KYTY_SOURCE_DIR}/graphics/guest_gpu/speculation.cpp"
 		"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/commandScheduler.cpp"
 		"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp"
 		"${KYTY_SOURCE_DIR}/graphics/host_gpu/renderer/pipeline/descriptors.cpp"
@@ -917,6 +943,12 @@ if(LINUX)
 endif()
 
 target_link_libraries(kyty_emulator ${kyty_emulator_link_libraries})
+if(KYTY_MIMALLOC)
+	# main.cpp replaces operator new/delete for this executable only. (Redirecting every module's malloc as well,
+	# mimalloc.dll + mimalloc-redirect.dll, measured no faster: stone arch 55.8-56.2 fps on, 55.9-57.1 off.)
+	target_link_libraries(kyty_emulator mimalloc-static)
+	set_property(SOURCE "${KYTY_SOURCE_DIR}/main.cpp" APPEND PROPERTY COMPILE_DEFINITIONS KYTY_MIMALLOC=1)
+endif()
 if (WIN32)
 	target_link_libraries(kyty_emulator opengl32)
 	target_link_libraries(kyty_emulator iphlpapi)

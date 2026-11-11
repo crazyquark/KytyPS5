@@ -45,6 +45,11 @@ GPU 1600 MHz（最高）时整体反而更慢；频率保持自动（Steam 的�
 
 下面的设置都由压缩包里的 `run-deck.sh` 完成，不需要另外安装任何东西。
 
+**更新**到新版本：用同样的方法解压新版的 Steam Deck 包，把新文件夹里的全部内容复制到 `~/KytyPS5`，覆盖原有文件
+（Dolphin：全部覆盖；Konsole 中为 `cp -r <新文件夹>/. ~/KytyPS5/`），然后再执行一次上面的 `chmod +x` 那一行。存档
+（`_SaveData`）、着色器缓存（`_PipelineCache`）和金手指文件不在包里，会原样保留；Steam 里的快捷方式及其启动选项也
+不受影响。更新后第一次游玩时，部分着色器可能会重新编译一次。
+
 ## 2. 游戏
 
 游戏是含有 `eboot.bin` 的文件夹（`PPSA01341-app0`，约 82 GB），或者打包成 ZArchive 的同一内容（`PPSA01341-app0.zar`，
@@ -98,6 +103,13 @@ GPU 1600 MHz（最高）时整体反而更慢；频率保持自动（Steam 的�
 | `KYTY_FPS_HUD=0` | 不显示右上角的帧数面板（F8 切换） |
 | `KYTY_GAME=/游戏/路径` | 游戏不在 `~/Games` 时 |
 | `KYTY_CONSOLE_LANGUAGE=0` | 主机语言（1 英语，默认；0 日语） |
+
+**金手指。** 模拟器自己的参数写在 `%command%` 后面。与游戏版本对应的 GoldHEN 格式金手指文件（包里不带；见 Windows 版
+README 的 "Cheats"）放在 `~/KytyPS5/_Patches/PPSA01341.json`，用
+`%command% --game-patch /home/deck/KytyPS5/_Patches/PPSA01341.json` 启用；文件里 `"enabled": false` 的条目不生效。
+包装程序（例如补帧工具的）写在 `%command%` 前面，开关再写在它前面：
+`KYTY_FPS_HUD=0 /路径/包装程序 %command% --game-patch /home/deck/KytyPS5/_Patches/PPSA01341.json`。每条生效的金手指在日志里
+有一行 `Successfully applied cheat: <名称>`。
 
 每次运行的日志在 `~/KytyPS5/logs/`；遇到问题时请附在 issue 里。
 

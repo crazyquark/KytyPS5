@@ -150,6 +150,29 @@ static void AddCopyMemoryIndirectExtension(const std::vector<vk::ExtensionProper
 		extensions.push_back(VK_NV_COPY_MEMORY_INDIRECT_EXTENSION_NAME);
 }
 
+// AMD's Windows driver with its older shader compiler (driver info "AMD proprietary shader compiler": the GCN cards'
+// driver, Vega and Polaris; RDNA's says "LLPC") refused every pipeline whose pixel shader reads
+// VK_KHR_fragment_shader_barycentric's BaryCoordKHR without a per-vertex input (ErrorUnknown, with or without
+// optimization; an RX Vega 56 with 26.5.2, issue #305: the picture's post-processing among them, a black screen),
+// although it reports the feature. Its VK_AMD_shader_explicit_vertex_parameter gives the same I/J
+// (TranslatorFeatureAmdBarycentrics): enabled, and `graphics` told, where both are there. Returns whether.
+static bool AmdExplicitVertexBarycentrics(vk::PhysicalDevice physical_device, const std::vector<vk::ExtensionProperties>& available,
+                                          std::vector<const char*>& extensions, GraphicContext& graphics) {
+	graphics.amd_explicit_vertex_barycentrics = false;
+	if (!HasExtension(available, VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME)) return false;
+	vk::PhysicalDeviceDriverProperties driver {};
+	vk::PhysicalDeviceProperties2      properties {};
+	properties.pNext = &driver;
+	physical_device.getProperties2(&properties);
+	if (properties.properties.vendorID != 0x1002u || driver.driverID != vk::DriverId::eAmdProprietary ||
+	    std::string_view(driver.driverInfo.data()).find("AMD proprietary shader compiler") == std::string_view::npos)
+		return false;
+	if (!HasExtension(extensions, VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME))
+		extensions.push_back(VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME);
+	graphics.amd_explicit_vertex_barycentrics = true;
+	return true;
+}
+
 static bool HasLayer(const std::vector<vk::LayerProperties>& layers, const char* name) {
 	return std::any_of(layers.begin(), layers.end(),
 	                   [name](const auto& layer) { return strcmp(layer.layerName, name) == 0; });
@@ -673,9 +696,14 @@ static void VulkanInitSubgroupSizeControl(vk::PhysicalDevice physical_device,
 	// the game's compute programs at 1-1 (the Windows driver's RDNA2 crash above is AMD's compiler, not RADV's).
 	const bool steam_deck_radv = device_properties.vendorID == 0x1002u && (id == 0x163fu || id == 0x1435u) &&
 	                             std::string_view(device_properties.deviceName.data()).find("RADV") != std::string_view::npos;
+	// And a GPU whose compute subgroups are 64 lanes and nothing else (GCN: RX 400/500, Vega): emulated, a wave is one
+	// program's 32 invocations of two lanes each, a whole subgroup only where subgroups have 32 lanes; on 64, two waves of
+	// a workgroup share one subgroup, their ballots and EXEC masks mixed (issue #305: an RX Vega 56's opening movie, its
+	// right half garbage; with KYTY_COMPUTE_WAVE64=1 it played right, AMD's older compiler refusing none of them).
+	const bool compute_64_lanes_only = graphics.min_subgroup_size > 32u;
 	const char* setting = std::getenv("KYTY_COMPUTE_WAVE64");
 	const bool  wanted  = setting != nullptr && *setting != '\0' ? std::string_view(setting) != "0"
-	                                                             : amd_rdna3_or_later || steam_deck_radv;
+	                                                             : amd_rdna3_or_later || steam_deck_radv || compute_64_lanes_only;
 	graphics.compute_wave64_native = graphics.compute_subgroup_size_control_enabled && wanted;
 	graphics.steam_deck_radv       = steam_deck_radv;
 	std::printf("Vulkan compute wave64: %s (%s, device 0x%04x:0x%04x)\n",
@@ -683,6 +711,7 @@ static void VulkanInitSubgroupSizeControl(vk::PhysicalDevice physical_device,
 	            setting != nullptr && *setting != '\0' ? "KYTY_COMPUTE_WAVE64"
 	            : amd_rdna3_or_later                    ? "AMD RDNA3 or later"
 	            : steam_deck_radv                       ? "Steam Deck GPU with RADV"
+	            : compute_64_lanes_only                 ? "64-lane compute subgroups only"
 	                                                    : "default",
 	            device_properties.vendorID, id);
 	// The cooperative halves (ShaderRecompiler::Frontend::TranslatorFeatures) only on NVIDIA GPUs, where they were
@@ -696,14 +725,24 @@ static void VulkanInitSubgroupSizeControl(vk::PhysicalDevice physical_device,
 	// again); until then its table mode pipelines are compiled at their first use.
 	// Float min/max as host instructions only on AMD GPUs (Translate::TranslatorFeatureNativeFloatMinMax).
 	namespace Translate = ShaderRecompiler::Frontend;
-	const bool     amd      = device_properties.vendorID == 0x1002u;
-	const uint32_t features = amd ? Translate::TranslatorFeatures
-	                              : Translate::TranslatorFeatures & ~Translate::TranslatorFeatureNativeFloatMinMax;
+	const bool amd      = device_properties.vendorID == 0x1002u;
+	uint32_t   features = amd ? Translate::TranslatorFeatures
+	                          : Translate::TranslatorFeatures & ~Translate::TranslatorFeatureNativeFloatMinMax;
+	// The AMD barycentrics only with AMD's older compiler, its extension enabled (AmdExplicitVertexBarycentrics), and
+	// whatever the store was made with: the KHR ones' pipelines are refused there (issue #305).
+	if (!graphics.amd_explicit_vertex_barycentrics) features &= ~Translate::TranslatorFeatureAmdBarycentrics;
+	const uint32_t amd_required =
+	    Translate::TranslatorFeatureTableSlotsAtUse |
+	    (graphics.amd_explicit_vertex_barycentrics ? Translate::TranslatorFeatureAmdBarycentrics : 0u);
 	if (device_properties.vendorID != 0x10deu) {
 		Translate::SetTranslatorDeviceFeatures(features & ~Translate::TranslatorFeatureCooperativeHalves,
-		                                       amd ? Translate::TranslatorFeatureTableSlotsAtUse : 0u);
-		std::printf("Cooperative halves: off on this GPU (tested on NVIDIA GPUs; KYTY_LANE_LOCAL_COOP=1 forces them)%s\n",
-		            amd ? "; table mode slots loaded at use, float min/max native" : "");
+		                                       amd ? amd_required : 0u);
+		std::printf("Cooperative halves: off on this GPU (tested on NVIDIA GPUs; KYTY_LANE_LOCAL_COOP=1 forces them)%s%s\n",
+		            amd ? "; table mode slots loaded at use, float min/max native" : "",
+		            graphics.amd_explicit_vertex_barycentrics
+		                ? "; pixel shaders' barycentrics without per-vertex inputs from VK_AMD_shader_explicit_vertex_parameter "
+		                  "(AMD's older compiler)"
+		                : "");
 	} else {
 		Translate::SetTranslatorDeviceFeatures(features);
 	}
@@ -1644,6 +1683,7 @@ void WindowContext::CreateVulkan() {
 				device_extensions.push_back(extension);
 			}
 		}
+		(void)AmdExplicitVertexBarycentrics(graphic_ctx.physical_device, available_extensions, device_extensions, graphic_ctx);
 		// KYTY_GPU_CHECKPOINTS (diagnostic): the pipelines a GPU hang or fault ran (device-fault.h).
 		if (DeviceFault::CheckpointsRequested() &&
 		    HasExtension(available_extensions, VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME)) {
@@ -1894,6 +1934,7 @@ bool CreateHeadlessGraphicContext(GraphicContext& graphic_ctx) {
 		if (HasExtension(available_extensions, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)) {
 			device_extensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
 		}
+		(void)AmdExplicitVertexBarycentrics(graphic_ctx.physical_device, available_extensions, device_extensions, graphic_ctx);
 	}
 	VulkanInitSubgroupSizeControl(graphic_ctx.physical_device, graphic_ctx);
 	const VulkanExtensions no_layers {};
