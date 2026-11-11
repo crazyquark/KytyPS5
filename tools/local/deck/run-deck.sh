@@ -1,6 +1,6 @@
 #!/bin/bash
 # Demon's Souls on the Steam Deck with the fastest settings measured (docs/STEAM-DECK.md): the Lowest graphics preset
-# (shorter sun shadows, no ambient or torch shadows, simpler distant detail; textures at full size), the 3D at
+# (shorter sun shadows, no ambient or torch shadows, simpler distant detail; textures a quarter the size), the 3D at
 # 768x432 without the TAA's history sharpening, no projected decals (blood, ground marks), sun shadows only within 20 m, the game's 1080p output shown full
 # screen at 1280x800 with 16:9 kept (bars top and bottom), the mouse cursor hidden. Best with the GPU clock at 1300 MHz
 # (Steam's Quick Access menu > Performance > Manual GPU Clock 1300; Game Mode keeps it per game).
@@ -25,7 +25,9 @@
 #                               when its layer is installed); =fsr AMD FSR 3's, built in. The kytyps5-des profile
 #                               measured with flow_scale = 0.5 and performance_mode = true: 432p at 30.5 fps (its
 #                               flow_scale 1.0 without performance mode: 28.8)
-#   KYTY_TEXTURE_REDUCE=2       textures a quarter the size (~1 GB less memory; no faster, and the same look at 432)
+#   KYTY_TEXTURE_REDUCE=1       textures half the size (2 by default: a quarter; 0 full size). No faster and the same
+#                               look at 360 and 432, but ~1 GB more memory at 360: after 28 minutes of a new game at 432
+#                               with half-size textures the Deck's swap was full (8.0 of 8.4 GB) and frames took 100-235 ms
 #   KYTY_FPS_HUD=0              no frame-rate panel at the top right (F8 switches it)
 #   KYTY_HIDE_CURSOR=0          the cursor shows when the mouse moves
 #   KYTY_CONSOLE_LANGUAGE=<n>   the console's language (1 English, the default; 0 Japanese)
@@ -53,7 +55,7 @@ export KYTY_HD_OUTPUT=1
 # path, 01.007.000 only).
 export KYTY_UPSCALER="${KYTY_UPSCALER:-none}"
 [ "$KYTY_UPSCALER" = none ] && unset KYTY_UPSCALER
-export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-1}"
+export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-2}"
 deck_convars="r_forceViewportHeightForPixelSizeCalc=480;r_enableAmbientShadowing=false;r_enableSpotShadows=false"
 [ "${KYTY_DECK_DECALS:-0}" = 1 ] || deck_convars="$deck_convars;r_projectedDecalEnable=false"
 # Sun shadows: short (20 m) by default; without them the sun lit the character under roofs and in dark corners (its

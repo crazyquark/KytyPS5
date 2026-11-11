@@ -9,7 +9,7 @@ emulator and the game onto the Deck, how to start it from Steam, and what to exp
 
 (The table below was measured at 640x360 with textures a quarter the size; at 768x432, now the default, Boletaria 1-1
 in the tunnel ran 31.3 frames a second without frame generation, 34.5 at 360. Texture size changed neither the frame
-rate nor the look there.)
+rate nor the look there; larger textures only took memory the Deck runs short of in long sessions.)
 
 Measured on a Steam Deck LCD (SteamOS 3.9) with the Steam Deck build (below) at `run-deck.sh`'s settings and the GPU
 clock at 1300 MHz: 15 seconds at each world's first archstone, 40 seconds after it loaded, after travelling there from
@@ -32,7 +32,7 @@ place compiles new shaders, which shows as short stutters (up to ~1.5 s); they a
 next visit is smooth.
 
 The settings `run-deck.sh` uses: the launcher's **Lowest** graphics preset (shorter sun shadows, no ambient or torch
-shadows, simpler distant detail), textures at full size less their largest level, the 3D drawn at 768x432 with the
+shadows, simpler distant detail), textures a quarter the size, the 3D drawn at 768x432 with the
 TAA's history sharpening off, no projected decals (blood, scorch marks), sun shadows within 20 m, the game's 1080p output shown full screen with its 16:9 kept (bars at the top
 and bottom).
 
