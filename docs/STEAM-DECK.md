@@ -7,6 +7,10 @@ emulator and the game onto the Deck, how to start it from Steam, and what to exp
 
 ## What it runs at
 
+(The table below was measured at 640x360 with textures a quarter the size; at 768x432, now the default, Boletaria 1-1
+in the tunnel ran 31.3 frames a second without frame generation, 34.5 at 360. Texture size changed neither the frame
+rate nor the look there.)
+
 Measured on a Steam Deck LCD (SteamOS 3.9) with the Steam Deck build (below) at `run-deck.sh`'s settings and the GPU
 clock at 1300 MHz: 15 seconds at each world's first archstone, 40 seconds after it loaded, after travelling there from
 the previous one.
@@ -28,8 +32,8 @@ place compiles new shaders, which shows as short stutters (up to ~1.5 s); they a
 next visit is smooth.
 
 The settings `run-deck.sh` uses: the launcher's **Lowest** graphics preset (shorter sun shadows, no ambient or torch
-shadows, simpler distant detail, textures a quarter the size), the 3D drawn at 640x360, no projected decals (blood,
-scorch marks), sun shadows within 20 m, the game's 1080p output shown full screen with its 16:9 kept (bars at the top
+shadows, simpler distant detail), textures at full size less their largest level, the 3D drawn at 768x432 with the
+TAA's history sharpening off, no projected decals (blood, scorch marks), sun shadows within 20 m, the game's 1080p output shown full screen with its 16:9 kept (bars at the top
 and bottom).
 
 Memory: the Deck's 16 GB are shared with its GPU. After visiting every world, 1.2 GB of RAM was left and 2.7 GB of the
@@ -107,7 +111,9 @@ equipment, and the Space it sends pauses the emulator (Space again resumes; the 
 | `KYTY_DECK_SUN_SHADOWS=full` | Sun shadows to 60 m, the Lowest preset's (slower) |
 | `KYTY_DECK_SUN_SHADOWS=off` | No sun shadows (fastest, but the sun lights the character in dark places) |
 | `KYTY_DECK_DECALS=1` | Projected decals (blood, scorch marks) back on (~7% slower) |
-| `KYTY_RENDER_HEIGHT=432` | A sharper 3D (768x432; ~5% slower than 360) |
+| `KYTY_RENDER_HEIGHT=360` | A softer 3D (640x360; ~10% faster than the default 432) |
+| `KYTY_DECK_SHARPEN=game` | The game's TAA history sharpening back on (crisper, but crawling edges); `off` no sharpening (soft) |
+| `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.5` and `performance_mode = true` there keep 432p at ~30 fps) |
 | `KYTY_FPS_HUD=0` | No frame-rate panel at the top right (F8 switches it) |
 | `KYTY_GAME=/path/to/game` | The game somewhere else than `~/Games` |
 | `KYTY_CONSOLE_LANGUAGE=0` | The console's language (1 English, the default; 0 Japanese) |

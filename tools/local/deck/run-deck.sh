@@ -1,7 +1,7 @@
 #!/bin/bash
 # Demon's Souls on the Steam Deck with the fastest settings measured (docs/STEAM-DECK.md): the Lowest graphics preset
 # (shorter sun shadows, no ambient or torch shadows, simpler distant detail; textures at full size), the 3D at
-# 640x360, no projected decals (blood, ground marks), sun shadows only within 20 m, the game's 1080p output shown full
+# 768x432 without the TAA's history sharpening, no projected decals (blood, ground marks), sun shadows only within 20 m, the game's 1080p output shown full
 # screen at 1280x800 with 16:9 kept (bars top and bottom), the mouse cursor hidden. Best with the GPU clock at 1300 MHz
 # (Steam's Quick Access menu > Performance > Manual GPU Clock 1300; Game Mode keeps it per game).
 #
@@ -13,13 +13,19 @@
 #   KYTY_DECK_SUN_SHADOWS=full  sun shadows to 60 m, the Lowest preset's (slower)
 #   KYTY_DECK_SUN_SHADOWS=off   no sun shadows (fastest, but the sun lights the character in dark places)
 #   KYTY_DECK_DECALS=1          projected decals back on (~7% slower)
-#   KYTY_RENDER_HEIGHT=432      a sharper 3D (768x432; ~5% slower than 360)
+#   KYTY_RENDER_HEIGHT=360      a softer 3D (640x360; 432 by default: at the 1-1 bench 31.3 fps without LSFG, 360 34.5,
+#                               480 29.7, 540 27.6). The look was the render height's: full, half or quarter-size
+#                               textures looked the same and ran the same at 360
+#   KYTY_DECK_SHARPEN=game      the game's TAA history sharpening back on (crisper, but crawling, painted edges at
+#                               432 and below); =off all its sharpening off (soft); the same frame rate each
 #   KYTY_UPSCALER=fsr           FSR 3 in place of the game's TAA (01.007.000's PS5 Pro path: smoother edges but soft at
 #                               360p, ~20% slower where the GPU bounds the frame, no GPU left for LSFG; 1.07's
 #                               Nexus 32.5 -> 39.9 fps; the same where the CPU does)
 #   KYTY_DECK_FRAMEGEN=off      no frame generation (default lsfg: Lossless Scaling's lsfg-vk, twice the frames shown,
-#                               when its layer is installed); =fsr AMD FSR 3's, built in
-#   KYTY_TEXTURE_REDUCE=2       textures a quarter the size (blurrier; at the 1-1 bench 38 fps instead of ~31 with LSFG)
+#                               when its layer is installed); =fsr AMD FSR 3's, built in. The kytyps5-des profile
+#                               measured with flow_scale = 0.5 and performance_mode = true: 432p at 30.5 fps (its
+#                               flow_scale 1.0 without performance mode: 28.8)
+#   KYTY_TEXTURE_REDUCE=2       textures a quarter the size (~1 GB less memory; no faster, and the same look at 432)
 #   KYTY_FPS_HUD=0              no frame-rate panel at the top right (F8 switches it)
 #   KYTY_HIDE_CURSOR=0          the cursor shows when the mouse moves
 #   KYTY_CONSOLE_LANGUAGE=<n>   the console's language (1 English, the default; 0 Japanese)
@@ -41,7 +47,7 @@ if [ -z "${KYTY_GAME:-}" ]; then
 fi
 [ -n "${KYTY_GAME:-}" ] || { echo "no game: put it in ~/Games/PPSA01341-app0(.zar) or set KYTY_GAME" >&2; exit 1; }
 export KYTY_GAME
-export KYTY_RENDER_HEIGHT="${KYTY_RENDER_HEIGHT:-360}"
+export KYTY_RENDER_HEIGHT="${KYTY_RENDER_HEIGHT:-432}"
 export KYTY_HD_OUTPUT=1
 # The game's TAA by default: FSR 3 from 640x360 was soft and took the GPU time LSFG needs (KYTY_UPSCALER=fsr: its PS5 Pro
 # path, 01.007.000 only).
@@ -56,6 +62,13 @@ case "${KYTY_DECK_SUN_SHADOWS:-short}" in
 	0 | off) deck_convars="$deck_convars;r_enableCascadeShadows=false" ;;
 	1 | full) deck_convars="$deck_convars;sunShadowMaxDistance=60" ;;
 	*) deck_convars="$deck_convars;sunShadowMaxDistance=20" ;;
+esac
+# The TAA's sharpening: its history sharpening crawled on edges and painted the foliage at 432 and below; its spatial
+# sharpening kept (all off was soft).
+case "${KYTY_DECK_SHARPEN:-history-off}" in
+	game) ;;
+	0 | off) deck_convars="$deck_convars;r_aaSharpenStrengthStatic=0;r_aaSharpenStrengthMotion=0;r_aaHistorySharpeningStrength=0" ;;
+	*) deck_convars="$deck_convars;r_aaHistorySharpeningStrength=0" ;;
 esac
 export KYTY_GAME_CONVARS="$deck_convars${KYTY_GAME_CONVARS:+;$KYTY_GAME_CONVARS}"
 export KYTY_PRESENT_ASPECT=fit
