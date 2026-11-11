@@ -1,6 +1,6 @@
 #!/bin/bash
 # Demon's Souls on the Steam Deck with the fastest settings measured (docs/STEAM-DECK.md): the Lowest graphics preset
-# (shorter sun shadows, no ambient or torch shadows, simpler distant detail, textures a quarter the size), the 3D at
+# (shorter sun shadows, no ambient or torch shadows, simpler distant detail; textures at full size), the 3D at
 # 640x360, no projected decals (blood, ground marks), sun shadows only within 20 m, the game's 1080p output shown full
 # screen at 1280x800 with 16:9 kept (bars top and bottom), the mouse cursor hidden. Best with the GPU clock at 1300 MHz
 # (Steam's Quick Access menu > Performance > Manual GPU Clock 1300; Game Mode keeps it per game).
@@ -14,8 +14,12 @@
 #   KYTY_DECK_SUN_SHADOWS=off   no sun shadows (fastest, but the sun lights the character in dark places)
 #   KYTY_DECK_DECALS=1          projected decals back on (~7% slower)
 #   KYTY_RENDER_HEIGHT=432      a sharper 3D (768x432; ~5% slower than 360)
-#   KYTY_UPSCALER=none          the game's TAA instead of FSR 3 (~20% faster where the GPU bounds the frame: 1.07's
+#   KYTY_UPSCALER=fsr           FSR 3 in place of the game's TAA (01.007.000's PS5 Pro path: smoother edges but soft at
+#                               360p, ~20% slower where the GPU bounds the frame, no GPU left for LSFG; 1.07's
 #                               Nexus 32.5 -> 39.9 fps; the same where the CPU does)
+#   KYTY_DECK_FRAMEGEN=off      no frame generation (default lsfg: Lossless Scaling's lsfg-vk, twice the frames shown,
+#                               when its layer is installed); =fsr AMD FSR 3's, built in
+#   KYTY_TEXTURE_REDUCE=2       textures a quarter the size (blurrier; at the 1-1 bench 38 fps instead of ~31 with LSFG)
 #   KYTY_FPS_HUD=0              no frame-rate panel at the top right (F8 switches it)
 #   KYTY_HIDE_CURSOR=0          the cursor shows when the mouse moves
 #   KYTY_CONSOLE_LANGUAGE=<n>   the console's language (1 English, the default; 0 Japanese)
@@ -39,11 +43,11 @@ fi
 export KYTY_GAME
 export KYTY_RENDER_HEIGHT="${KYTY_RENDER_HEIGHT:-360}"
 export KYTY_HD_OUTPUT=1
-# FSR 3 in place of the game's TAA: its PS5 Pro path, the 3D upscaled to the 1080p output (01.007.000 only: other builds
-# have no such path and keep the TAA).
-export KYTY_UPSCALER="${KYTY_UPSCALER:-fsr}"
+# The game's TAA by default: FSR 3 from 640x360 was soft and took the GPU time LSFG needs (KYTY_UPSCALER=fsr: its PS5 Pro
+# path, 01.007.000 only).
+export KYTY_UPSCALER="${KYTY_UPSCALER:-none}"
 [ "$KYTY_UPSCALER" = none ] && unset KYTY_UPSCALER
-export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-2}"
+export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-1}"
 deck_convars="r_forceViewportHeightForPixelSizeCalc=480;r_enableAmbientShadowing=false;r_enableSpotShadows=false"
 [ "${KYTY_DECK_DECALS:-0}" = 1 ] || deck_convars="$deck_convars;r_projectedDecalEnable=false"
 # Sun shadows: short (20 m) by default; without them the sun lit the character under roofs and in dark corners (its
@@ -65,6 +69,16 @@ export KYTY_FPS_HUD="${KYTY_FPS_HUD:-1}"
 export KYTY_UFFD_WP="${KYTY_UFFD_WP:-1}"
 export KYTY_UFFD_MINOR="${KYTY_UFFD_MINOR:-1}"
 export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-alsa,pulseaudio}"
+# (Not PIPEWIRE_LATENCY: a PipeWire quantum larger than SDL's ALSA buffer, two device periods, plays half of each cycle as
+# silence. The Steam Deck build's device period is 512 samples instead: KYTY_AUDIO_DEVICE_SAMPLES.)
+# Frame generation (KYTY_DECK_FRAMEGEN): lsfg  Lossless Scaling's (lsfg-vk 2: the profile named kytyps5-des in
+# ~/.config/lsfg-vk/conf.toml, chosen by LSFGVK_PROFILE), fsr  FSR 3 frame interpolation built in; twice the frames shown.
+framegen_default=off
+[ -e "$HOME/.local/share/vulkan/implicit_layer.d/VkLayer_LSFGVK_frame_generation.json" ] && framegen_default=lsfg
+case "${KYTY_DECK_FRAMEGEN:-$framegen_default}" in
+	lsfg) export LSFGVK_PROFILE=kytyps5-des ENABLE_GAMESCOPE_WSI=0 ;;
+	fsr) export KYTY_FRAMEGEN_BACKEND=fsr ;;
+esac
 export KYTY_BDA_GROUP_WALKS="${KYTY_BDA_GROUP_WALKS:-1}"
 export KYTY_UPLOAD_HELP="${KYTY_UPLOAD_HELP:-1}"
 export KYTY_RENDER_CORE="${KYTY_RENDER_CORE:-2}"

@@ -447,6 +447,24 @@ bool Audio::OpenSdlDevice(PortOut* port) {
 	desired.format   = SdlFormat(port->format);
 	desired.channels = static_cast<Uint8>(OutputChannels(*port));
 	desired.samples  = static_cast<Uint16>(port->samples_num);
+#if defined(KYTY_STEAM_DECK)
+	// The Steam Deck build. KYTY_AUDIO_STEREO (default 1): a 7.1 port is opened as stereo, the emulator's own downmix
+	// (DownmixesToStereo: the center and surrounds at -3 dB) in place of PipeWire's, which also applied the volumes its
+	// stream-restore kept per application (here the center, LFE and surrounds at 0%: no dialogue). The Deck's speakers and
+	// headphone jack are stereo. KYTY_AUDIO_DEVICE_SAMPLES (default 512, 0: the grain's 256): the device's period, its
+	// ALSA buffer two of them; with every core busy the 5.3 ms periods ran dry (~2350 underruns a stream in 1h45m).
+	// Larger than the SDL queue's usual low (~26 ms) it would pad periods with silence: 1024 is the most it takes.
+	static const bool stereo = [] {
+		const char* value = std::getenv("KYTY_AUDIO_STEREO");
+		return value == nullptr || std::strcmp(value, "0") != 0;
+	}();
+	static const int device_samples = [] {
+		const char* value = std::getenv("KYTY_AUDIO_DEVICE_SAMPLES");
+		return value != nullptr ? std::clamp(std::atoi(value), 0, 1024) : 512;
+	}();
+	if (stereo && port->channels_num >= 8) desired.channels = 2;
+	if (device_samples > static_cast<int>(desired.samples)) desired.samples = static_cast<Uint16>(device_samples);
+#endif
 	desired.callback = nullptr;
 
 	SDL_AudioSpec obtained {};
