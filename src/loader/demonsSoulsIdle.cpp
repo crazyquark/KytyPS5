@@ -8,6 +8,7 @@
 #include "kernel/memory.h"
 #include "loader/guestCode.h"
 #include "loader/runtimeLinker.h"
+#include "local/live-switch.h"
 
 #include <atomic>
 #include <cstdio>
@@ -25,8 +26,23 @@ extern "C" {
 }()};
 }
 
+// KYTY_TICKET_BACKOFF_US=<n> (live `set ticket_backoff_us <n>`, default 50): the job workers' ticket wait (TicketWait)
+// pauses each round and sleeps n microseconds every TicketSpins rounds; 0: the game's own loop.
 namespace Loader::DemonsSoulsIdle {
 namespace {
+constexpr uint32_t     TicketSpins = 128;
+uint64_t               ticket_site = 0;
+std::array<uint8_t, TicketLoopSize> ticket_installed {}, ticket_original {};
+
+std::atomic<int64_t>& TicketBackoffUs() {
+	static auto& value = LiveSwitch::Find("ticket_backoff_us", 50);
+	return value;
+}
+
+void KYTY_SYSV_ABI TicketBackoff() {
+	if (const auto us = TicketBackoffUs().load(std::memory_order_relaxed); us > 0)
+		Common::Thread::SleepMicroWithoutSpinning(static_cast<uint32_t>(us));
+}
 constexpr uint64_t     PageSize = 0x4000, CaveOffset = 0x8000000;
 uint64_t               cave = 0, site = 0, spin_site = 0;
 std::array<uint8_t, 5> installed_call {}, original_call {}, spin_installed {}, spin_original {};
@@ -107,6 +123,16 @@ void Install(Program* program) {
 		spin_thunk = reinterpret_cast<uint64_t>(code.getCurr());
 		EmitSpinThunk(code, reinterpret_cast<const void*>(&SpinBackoff));
 	}
+	// The ticket wait's stand-in.
+	const auto     ticket       = GuestCode::FindUnique(*program, GuestCode::Pattern(TicketWait));
+	const uint64_t ticket_loop  = ticket ? *ticket + TicketLoopAt : 0;
+	uint64_t       ticket_stub  = 0;
+	if (ticket_loop != 0) {
+		code.align(16);
+		ticket_stub = reinterpret_cast<uint64_t>(code.getCurr());
+		EmitTicketWait(code, ticket_loop, &TicketBackoffUs(), reinterpret_cast<const void*>(&TicketBackoff),
+		               TicketSpins);
+	}
 	code.ready();
 	if (Xbyak::GetError() ||
 	    !Common::VirtualMemory::FlushInstructionCache(allocated, code.getSize()) ||
@@ -150,6 +176,26 @@ void Install(Program* program) {
 			Common::VirtualMemory::FlushInstructionCache(spin_call, spin_original.size());
 		}
 	}
+	if (ticket_loop != 0) {
+		ticket_installed.fill(0xcc);
+		ticket_installed[0] = 0xe9;
+		const auto to_stub  = static_cast<int32_t>(ticket_stub - (ticket_loop + 5));
+		std::memcpy(ticket_installed.data() + 1, &to_stub, sizeof(to_stub));
+		std::memcpy(ticket_original.data(), reinterpret_cast<const void*>(ticket_loop), ticket_original.size());
+		std::memcpy(reinterpret_cast<void*>(ticket_loop), ticket_installed.data(), ticket_installed.size());
+		if (Common::VirtualMemory::FlushInstructionCache(ticket_loop, ticket_installed.size())) {
+			ticket_site = ticket_loop;
+			std::printf("Demon's Souls ticket wait: the job workers' wait for their item at eboot+0x%llx pauses, "
+			            "sleeping %lld us every %u rounds (live ticket_backoff_us; 0: the game's loop)\n",
+			            static_cast<unsigned long long>(ticket_loop - program->base_vaddr),
+			            static_cast<long long>(TicketBackoffUs().load(std::memory_order_relaxed)), TicketSpins);
+		} else {
+			std::memcpy(reinterpret_cast<void*>(ticket_loop), ticket_original.data(), ticket_original.size());
+			Common::VirtualMemory::FlushInstructionCache(ticket_loop, ticket_original.size());
+		}
+	} else {
+		std::printf("Demon's Souls ticket wait: no ticket wait of a known build found; retaining guest code\n");
+	}
 #endif
 }
 
@@ -168,7 +214,15 @@ void Clear() {
 			Common::VirtualMemory::FlushInstructionCache(spin_site, bytes.size());
 		}
 	}
+	if (ticket_site != 0) {
+		std::array<uint8_t, TicketLoopSize> loop {};
+		std::memcpy(loop.data(), reinterpret_cast<const void*>(ticket_site), loop.size());
+		if (loop == ticket_installed) {
+			std::memcpy(reinterpret_cast<void*>(ticket_site), ticket_original.data(), loop.size());
+			Common::VirtualMemory::FlushInstructionCache(ticket_site, loop.size());
+		}
+	}
 	Libs::LibKernel::Memory::FreeGuestMemory(cave, PageSize);
-	cave = site = spin_site = 0;
+	cave = site = spin_site = ticket_site = 0;
 }
 } // namespace Loader::DemonsSoulsIdle

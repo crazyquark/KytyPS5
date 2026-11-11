@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstring>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -39,7 +41,82 @@ inline constexpr size_t           SpinCallAt = 10;
 // The TSC helper it calls: rdtsc; shl rdx, 32; or rax, rdx; ret.
 inline constexpr std::string_view TscHelper = "0f 31 48 c1 e2 20 48 09 d0 c3";
 
+// The job workers' ticket wait (01.005.000 eboot+0xbcdcc0, 01.007.000 eboot+0xbed690): a worker takes a ticket
+// (lock xadd [rbx+0x694]), then reads, without a pause, whether the items published (0x698) reach it or the batch is
+// stopped (0x690) - one load each round, ~13% of the job threads' samples standing at Boletaria 1-1 on the Deck.
+// The ticket, two-byte nop, then the loop: cmp eax,[rbx+A]; jl work; cmp dword [rbx+B],0; je loop (TicketLoopAt).
+inline constexpr std::string_view TicketWait = "f0 0f c1 83 ?? ?? ?? ?? 66 90 3b 83 ?? ?? ?? ?? 7c ?? 83 bb ?? ?? ?? ?? 00 74 ef";
+inline constexpr size_t           TicketLoopAt = 10, TicketLoopSize = 17;
+
 #if defined(__x86_64__) || defined(_M_X64)
+// The ticket wait's stand-in, jumped to from the loop's head (`loop` .. `loop` + TicketLoopSize): with `*backoff_us` 0
+// the game's loop as it is; else `pause` each round and, every `spins` rounds, `sleep` (every register and the flags
+// kept, the red zone left alone). It leaves for the loop's two exits with the flags their compare made.
+inline void EmitTicketWait(Xbyak::CodeGenerator& c, uint64_t loop, const std::atomic<int64_t>* backoff_us,
+                           const void* sleep, uint32_t spins) {
+	using namespace Xbyak::util;
+	int32_t items = 0, stop = 0;
+	int8_t  to_work = 0;
+	std::memcpy(&items, reinterpret_cast<const void*>(loop + 2), sizeof(items));
+	std::memcpy(&to_work, reinterpret_cast<const void*>(loop + 7), sizeof(to_work));
+	std::memcpy(&stop, reinterpret_cast<const void*>(loop + 10), sizeof(stop));
+	const auto* work = reinterpret_cast<const void*>(loop + 8 + to_work);
+	const auto* exit = reinterpret_cast<const void*>(loop + TicketLoopSize);
+	Xbyak::Label original, spin, sleep_now, leave_work, leave_exit;
+	c.push(rcx);
+	c.mov(rcx, reinterpret_cast<uint64_t>(backoff_us));
+	c.cmp(qword[rcx], 0);
+	c.pop(rcx);
+	c.je(original, Xbyak::CodeGenerator::T_NEAR);
+	c.lea(rsp, ptr[rsp - 128]); // the red zone
+	c.push(rcx);
+	c.xor_(ecx, ecx);
+	c.L(spin);
+	c.cmp(eax, dword[rbx + items]);
+	c.jl(leave_work, Xbyak::CodeGenerator::T_NEAR);
+	c.cmp(dword[rbx + stop], 0);
+	c.jne(leave_exit, Xbyak::CodeGenerator::T_NEAR);
+	c.pause();
+	c.inc(ecx);
+	c.cmp(ecx, spins);
+	c.jae(sleep_now, Xbyak::CodeGenerator::T_NEAR);
+	c.jmp(spin);
+	c.L(sleep_now);
+	c.xor_(ecx, ecx);
+	c.pushfq();
+	for (const auto& reg: {rax, rcx, rdx, rsi, rdi, r8, r9, r10, r11, rbp})
+		c.push(reg);
+	c.mov(rbp, rsp);
+	c.and_(rsp, -64);
+	c.sub(rsp, 512);
+	constexpr uint8_t save_fp[] {0x48, 0x0f, 0xae, 0x04, 0x24}; // FXSAVE64 [rsp]
+	c.db(save_fp, sizeof(save_fp));
+	c.mov(rax, reinterpret_cast<uint64_t>(sleep));
+	c.call(rax);
+	c.fxrstor64(ptr[rsp]);
+	c.mov(rsp, rbp);
+	for (const auto& reg: {rbp, r11, r10, r9, r8, rdi, rsi, rdx, rcx, rax})
+		c.pop(reg);
+	c.popfq();
+	c.jmp(spin);
+	c.L(leave_work);
+	c.pop(rcx);
+	c.lea(rsp, ptr[rsp + 128]);
+	c.cmp(eax, dword[rbx + items]); // the items only grow: still less, as the jl found
+	c.jmp(work, Xbyak::CodeGenerator::T_NEAR);
+	c.L(leave_exit);
+	c.pop(rcx);
+	c.lea(rsp, ptr[rsp + 128]);
+	c.cmp(dword[rbx + stop], 0);
+	c.jmp(exit, Xbyak::CodeGenerator::T_NEAR);
+	c.L(original);
+	c.cmp(eax, dword[rbx + items]);
+	c.jl(work);
+	c.cmp(dword[rbx + stop], 0);
+	c.je(original);
+	c.jmp(exit, Xbyak::CodeGenerator::T_NEAR);
+}
+
 // The poll's observable register state is retained even on the idle path.
 // In particular this is not an ordinary C++ function replacement: its caller
 // may rely on registers the original poll was known not to modify.
