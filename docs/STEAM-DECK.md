@@ -119,7 +119,7 @@ equipment, and the Space it sends pauses the emulator (Space again resumes; the 
 | `KYTY_DECK_DECALS=1` | Projected decals (blood, scorch marks) back on (~7% slower) |
 | `KYTY_RENDER_HEIGHT=360` | A softer 3D (640x360; ~10% faster than the default 432) |
 | `KYTY_DECK_SHARPEN=game` | The game's TAA history sharpening back on (crisper, but crawling edges); `off` no sharpening (soft) |
-| `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.5` and `performance_mode = true` there keep 432p at ~30 fps) |
+| `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.8` with `performance_mode = true` there: 0.5 is lighter but flickers the character when the camera turns) |
 | `KYTY_FPS_HUD=0` | No frame-rate panel at the top right (F8 switches it) |
 | `KYTY_GAME=/path/to/game` | The game somewhere else than `~/Games` |
 | `KYTY_CONSOLE_LANGUAGE=0` | The console's language (1 English, the default; 0 Japanese) |

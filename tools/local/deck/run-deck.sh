@@ -22,9 +22,10 @@
 #                               360p, ~20% slower where the GPU bounds the frame, no GPU left for LSFG; 1.07's
 #                               Nexus 32.5 -> 39.9 fps; the same where the CPU does)
 #   KYTY_DECK_FRAMEGEN=off      no frame generation (default lsfg: Lossless Scaling's lsfg-vk, twice the frames shown,
-#                               when its layer is installed); =fsr AMD FSR 3's, built in. The kytyps5-des profile
-#                               measured with flow_scale = 0.5 and performance_mode = true: 432p at 30.5 fps (its
-#                               flow_scale 1.0 without performance mode: 28.8)
+#                               when its layer is installed); =fsr AMD FSR 3's, built in. The kytyps5-des profile:
+#                               flow_scale = 0.8 and performance_mode = true (0.5 flickered the character in camera
+#                               turns; 0.8 without performance mode dipped more). At 432p: flow 0.5 with performance
+#                               mode 30.5 fps, flow 1.0 without it 28.8
 #   KYTY_TEXTURE_REDUCE=1       textures half the size (2 by default: a quarter; 0 full size). No faster and the same
 #                               look at 360 and 432, but ~1 GB more memory at 360: after 28 minutes of a new game at 432
 #                               with half-size textures the Deck's swap was full (8.0 of 8.4 GB) and frames took 100-235 ms
