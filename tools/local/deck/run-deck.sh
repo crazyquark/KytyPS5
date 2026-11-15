@@ -1,9 +1,11 @@
 #!/bin/bash
 # Demon's Souls on the Steam Deck with the fastest settings measured (docs/STEAM-DECK.md): the Lowest graphics preset
 # (shorter sun shadows, no ambient or torch shadows, simpler distant detail; textures a quarter the size), the 3D at
-# 768x432 without the TAA's history sharpening, no projected decals (blood, ground marks), sun shadows only within 20 m, the game's 1080p output shown full
-# screen at 1280x800 with 16:9 kept (bars top and bottom), the mouse cursor hidden. Best with the GPU clock at 1300 MHz
-# (Steam's Quick Access menu > Performance > Manual GPU Clock 1300; Game Mode keeps it per game).
+# 768x432 without the TAA's history sharpening, no projected decals (blood, ground marks), sun shadows only within 20 m, the
+# global illumination as the level loads it (not updated in play), the game's 1080p output shown full screen at 1280x800
+# with 16:9 kept (bars top and bottom), the mouse cursor hidden. Best with the GPU clock at 1600 MHz (Steam's Quick
+# Access menu > Performance > Manual GPU Clock 1600; Game Mode keeps it per game): at 1300 World 2 ran 32 -> 29.4 fps
+# and the CPU did not take the power left (cores ~2.4 GHz either way).
 #
 # It runs the kyty_emulator next to it: the Linux package's, or a Steam Deck build (tools/local/deck/build-deck.sh). The
 # Steam Deck build's defaults are set here too, so the Linux package runs as it does; one set before the script wins.
@@ -13,6 +15,10 @@
 #   KYTY_DECK_SUN_SHADOWS=full  sun shadows to 60 m, the Lowest preset's (slower)
 #   KYTY_DECK_SUN_SHADOWS=off   no sun shadows (fastest, but the sun lights the character in dark places)
 #   KYTY_DECK_DECALS=1          projected decals back on (~7% slower)
+#   KYTY_DECK_GI_UPDATES=1      the global illumination updated in play again (the game's default: GIEnableUpdates).
+#                               Off by default: the level's lighting loads with it and looked the same, 6-22% faster
+#                               (world tour: Nexus 39 -> 45 fps, World 2 33.5 -> 41, World 3 25.6 -> 30, 1-1 23.8 -> 27);
+#                               lights that change in play may keep the lighting of the load
 #   KYTY_RENDER_HEIGHT=360      a softer 3D (640x360; 432 by default: at the 1-1 bench 31.3 fps without LSFG, 360 34.5,
 #                               480 29.7, 540 27.6). The look was the render height's: full, half or quarter-size
 #                               textures looked the same and ran the same at 360
@@ -59,6 +65,7 @@ export KYTY_UPSCALER="${KYTY_UPSCALER:-none}"
 export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-2}"
 deck_convars="r_forceViewportHeightForPixelSizeCalc=480;r_enableAmbientShadowing=false;r_enableSpotShadows=false"
 [ "${KYTY_DECK_DECALS:-0}" = 1 ] || deck_convars="$deck_convars;r_projectedDecalEnable=false"
+[ "${KYTY_DECK_GI_UPDATES:-0}" = 1 ] || deck_convars="$deck_convars;GIEnableUpdates=false"
 # Sun shadows: short (20 m) by default; without them the sun lit the character under roofs and in dark corners (its
 # highlights far too bright there). (r_forceShadowLOD=1 showed stray wall pieces in the tutorial: left out.)
 case "${KYTY_DECK_SUN_SHADOWS:-short}" in

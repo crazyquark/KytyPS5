@@ -25,9 +25,16 @@ the previous one.
 | Valley of Defilement (5-1) | 28-29 |
 | Nexus | 40-41 |
 
-The frame rate is set by the Deck's 15 W shared between its CPU and its GPU: the emulator needs both. At 1300 MHz the
-GPU leaves the CPU enough power; at 1600 MHz (the most) the whole frame was slower, and with the clock left on auto
-(Steam's default) a later tour ran 1-3 frames a second slower in the worlds (the Nexus the same). The first visit to a
+The frame rate is set by the Deck's 15 W shared between its CPU and its GPU: the emulator needs both. The table above
+was measured at 1300 MHz, when that left the CPU more power; with today's defaults (432p, LSFG, no GI updates) the GPU
+sets the frame: in Stonefang (2-1) 1600 MHz ran 32 fps, 1300 MHz 29.4 and 1100 MHz 26.8, and the CPU did not use the
+power left (its cores ~2.4 GHz at each). Hold the clock at 1600 MHz; left on auto (Steam's default) a tour ran 1-3 frames
+a second slower in the worlds (the Nexus the same).
+
+Global illumination is left as each level loads it (`GIEnableUpdates=false`, not updated in play): the same picture in
+the worlds tried, and a world tour 6-22% faster (Nexus 39 -> 45 fps, Stonefang 33.5 -> 41, Latria 25.6 -> 30, Shrine
+28.7 -> 30.6, Valley 26.6 -> 29, 1-1 23.8 -> 27). Lights that change in play may keep the lighting of the load;
+`KYTY_DECK_GI_UPDATES=1` updates it again. The first visit to a
 place compiles new shaders, which shows as short stutters (up to ~1.5 s); they are kept in `_PipelineCache`, so the
 next visit is smooth.
 
@@ -101,7 +108,7 @@ Still in Desktop Mode: open Steam > Games > **Add a Non-Steam Game to My Library
 
 Back in **Game Mode**, start it from the library (Non-Steam). Then set its performance profile once: the Quick Access
 menu (the `...` button) > Performance > **Use per-game profile**, then (Advanced View) Manual GPU Clock Control **on**,
-**1300 MHz**. Game Mode keeps it for this game.
+**1600 MHz**. Game Mode keeps it for this game.
 
 Start the game from Game Mode: there the Deck's controls reach the game as a controller only. Started outside Steam
 (Desktop Mode), Steam's desktop layout also sends keyboard keys for the Deck's sticks and buttons: the arrow keys change
@@ -117,6 +124,7 @@ equipment, and the Space it sends pauses the emulator (Space again resumes; the 
 | `KYTY_DECK_SUN_SHADOWS=full` | Sun shadows to 60 m, the Lowest preset's (slower) |
 | `KYTY_DECK_SUN_SHADOWS=off` | No sun shadows (fastest, but the sun lights the character in dark places) |
 | `KYTY_DECK_DECALS=1` | Projected decals (blood, scorch marks) back on (~7% slower) |
+| `KYTY_DECK_GI_UPDATES=1` | Global illumination updated in play again, as the game does (6-22% slower; off by default, the level's lighting as it loads) |
 | `KYTY_RENDER_HEIGHT=360` | A softer 3D (640x360; ~10% faster than the default 432) |
 | `KYTY_DECK_SHARPEN=game` | The game's TAA history sharpening back on (crisper, but crawling edges); `off` no sharpening (soft) |
 | `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.8` with `performance_mode = true` there: 0.5 is lighter but flickers the character when the camera turns) |
