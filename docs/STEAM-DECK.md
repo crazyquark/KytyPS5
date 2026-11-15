@@ -125,6 +125,7 @@ equipment, and the Space it sends pauses the emulator (Space again resumes; the 
 | `KYTY_DECK_SUN_SHADOWS=off` | No sun shadows (fastest, but the sun lights the character in dark places) |
 | `KYTY_DECK_DECALS=1` | Projected decals (blood, scorch marks) back on (~7% slower) |
 | `KYTY_DECK_GI_UPDATES=1` | Global illumination updated in play again, as the game does (6-22% slower; off by default, the level's lighting as it loads) |
+| `KYTY_FILE_OFFLOAD=0` | Game-file copies kept in RAM (on by default: dropped and read back from the files when touched, ~1 GB less RAM in play, fewer swap stalls) |
 | `KYTY_RENDER_HEIGHT=360` | A softer 3D (640x360; ~10% faster than the default 432) |
 | `KYTY_DECK_SHARPEN=game` | The game's TAA history sharpening back on (crisper, but crawling edges); `off` no sharpening (soft) |
 | `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.8` with `performance_mode = true` there: 0.5 is lighter but flickers the character when the camera turns) |
