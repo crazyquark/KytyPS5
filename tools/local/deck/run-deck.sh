@@ -37,6 +37,9 @@
 #                               with half-size textures the Deck's swap was full (8.0 of 8.4 GB) and frames took 100-235 ms
 #   KYTY_FILE_OFFLOAD=0         game-file copies kept in RAM (more swapping in long play: stalls of 0.3-2.8 s when the
 #                               Deck's free RAM ran under 1 GB)
+#   KYTY_ASYNC_DRAW_PIPELINES=0 a draw whose shaders no cache holds waits for them to compile on the render thread
+#                               (the first visit's freezes of 0.1-0.8 s each) instead of being left out until a worker
+#                               has them
 #   KYTY_FPS_HUD=0              no frame-rate panel at the top right (F8 switches it)
 #   KYTY_HIDE_CURSOR=0          the cursor shows when the mouse moves
 #   KYTY_CONSOLE_LANGUAGE=<n>   the console's language (1 English, the default; 0 Japanese)
@@ -70,6 +73,10 @@ export KYTY_TEXTURE_REDUCE="${KYTY_TEXTURE_REDUCE:-2}"
 # kept 0.85-1 GB out of RAM: the least free RAM 0.73 -> 1.24 GB, seconds under memory pressure 23% -> 9%, frames over
 # 0.5 s halved; touched pieces read back ~8 ms each (at most 114 ms, from the SD card).
 export KYTY_FILE_OFFLOAD="${KYTY_FILE_OFFLOAD:-1}"
+# A draw whose pipeline no cache holds left out while a worker compiles it, not compiled on the render thread. A world
+# tour from a cold cache: compiles on the render thread 7.4 -> 5.4 s, frames over 0.5 s 9 -> 5 (the rest are compute
+# shaders'); the draws were missing for those frames only, the worlds' pictures afterwards the same.
+export KYTY_ASYNC_DRAW_PIPELINES="${KYTY_ASYNC_DRAW_PIPELINES:-1}"
 deck_convars="r_forceViewportHeightForPixelSizeCalc=480;r_enableAmbientShadowing=false;r_enableSpotShadows=false"
 [ "${KYTY_DECK_DECALS:-0}" = 1 ] || deck_convars="$deck_convars;r_projectedDecalEnable=false"
 [ "${KYTY_DECK_GI_UPDATES:-0}" = 1 ] || deck_convars="$deck_convars;GIEnableUpdates=false"

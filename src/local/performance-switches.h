@@ -35,6 +35,7 @@ extern volatile std::atomic_uint32_t kyty_local_framegen_sleep;
 extern volatile std::atomic_uint32_t kyty_local_dispatch_batch;
 extern volatile std::atomic_uint32_t kyty_local_draw_batch;
 extern volatile std::atomic<uint32_t> kyty_local_upload_prologue;
+extern volatile std::atomic_uint32_t kyty_local_async_draw_pipelines_mode;
 extern volatile std::atomic_uint32_t kyty_local_async_lod_stats_mode;
 extern volatile std::atomic<uint32_t> kyty_local_buffer_reclaim_mode;
 extern volatile std::atomic<uint32_t> kyty_local_unmap_protect_skip_mode;
@@ -147,6 +148,9 @@ inline void InitializePerformanceSwitches() {
 	    Switch {"KYTY_DRAW_BATCH", &kyty_local_draw_batch, 0, 65536},
 	    // Buffer uploads of pages dirty since before the open command buffer in its upload prologue (on by default).
 	    Switch {"KYTY_UPLOAD_PROLOGUE", &kyty_local_upload_prologue},
+	    // A draw whose pipeline no cache holds skipped while it compiles on a worker (renderDraw.cpp; 0: compiled on
+	    // the render thread before the draw, the default).
+	    Switch {"KYTY_ASYNC_DRAW_PIPELINES", &kyty_local_async_draw_pipelines_mode},
 #if defined(KYTY_LOCAL_VULKAN_RECORDING)
 	    Switch {"KYTY_VULKAN_RECORDING", &kyty_local_vulkan_recording_mode},
 	    Switch {"KYTY_DEFERRED_SUBMIT", &kyty_local_deferred_submit_mode},

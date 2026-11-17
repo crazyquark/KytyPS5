@@ -74,6 +74,7 @@ extern "C" {
 // 0: a draw run reads no buffer range that any image overlaps; 1: sampled
 // images whose contents still come from the CPU may overlap its read ranges.
 volatile std::atomic_uint32_t kyty_local_draw_run_ranges_mode {1};
+[[gnu::used]] volatile std::atomic_uint32_t kyty_local_async_draw_pipelines_mode {0};
 // KYTY_DRAW_PACKETS: the ordinary DrawIndex/DrawAuto draws are recorded as packets too (their
 // debug phases are CPU-side notes only), instead of ~20 separately recorded Vulkan calls each.
 volatile std::atomic_uint32_t kyty_local_draw_packets_mode {1};
@@ -1567,10 +1568,26 @@ bool RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	if (log_pipeline_phase) {
 		LogDrawPhase(draw.name, "CreatePipeline");
 	}
-	auto& pipeline = m_context.GetPipelineCache().CreateGraphicsPipeline(
-	    std::span {state.color_info, state.color_count}, state.depth_info, state.vs_input_info, buffer,
-	    state.ps_active ? &state.ps_input_info : nullptr, topology, primitive_restart_enable,
-	    state.programs.vertex, state.programs.pixel);
+	// KYTY_ASYNC_DRAW_PIPELINES: a pipeline no cache holds compiles on a worker and the draw is left out until it is
+	// made (TryCreateGraphicsPipeline), as a native XPR variant's is: on the Steam Deck a first visit's compiles took
+	// 0.1-0.8 s each on the render thread. What the draw would have written stays as it was for those frames.
+	auto* const pipeline_made =
+	    kyty_local_async_draw_pipelines_mode.load(std::memory_order_relaxed) != 0
+	        ? m_context.GetPipelineCache().TryCreateGraphicsPipeline(
+	              std::span {state.color_info, state.color_count}, state.depth_info, state.vs_input_info, buffer,
+	              state.ps_active ? &state.ps_input_info : nullptr, topology, primitive_restart_enable,
+	              state.programs.vertex, state.programs.pixel, false)
+	        : &m_context.GetPipelineCache().CreateGraphicsPipeline(
+	              std::span {state.color_info, state.color_count}, state.depth_info, state.vs_input_info, buffer,
+	              state.ps_active ? &state.ps_input_info : nullptr, topology, primitive_restart_enable,
+	              state.programs.vertex, state.programs.pixel);
+	if (pipeline_made == nullptr) {
+		LiveCounters::Add(LiveCounters::DrawPipelinePending);
+		m_native_xpr_store  = false;
+		m_native_xpr_verify = {};
+		return true;
+	}
+	auto& pipeline = *pipeline_made;
 
 	// Resource preparation above may synchronously finish and restart the scheduler. From this
 	// point onward, every operation targets the current command buffer and cannot touch guest

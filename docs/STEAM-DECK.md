@@ -35,8 +35,9 @@ Global illumination is left as each level loads it (`GIEnableUpdates=false`, not
 the worlds tried, and a world tour 6-22% faster (Nexus 39 -> 45 fps, Stonefang 33.5 -> 41, Latria 25.6 -> 30, Shrine
 28.7 -> 30.6, Valley 26.6 -> 29, 1-1 23.8 -> 27). Lights that change in play may keep the lighting of the load;
 `KYTY_DECK_GI_UPDATES=1` updates it again. The first visit to a
-place compiles new shaders, which shows as short stutters (up to ~1.5 s); they are kept in `_PipelineCache`, so the
-next visit is smooth.
+place compiles new shaders; the draws that wait for them are left out for those frames (an object or effect missing
+for a moment) and the compute shaders' still stutter (up to ~1 s); they are kept in `_PipelineCache`, so the next
+visit is smooth.
 
 The settings `run-deck.sh` uses: the launcher's **Lowest** graphics preset (shorter sun shadows, no ambient or torch
 shadows, simpler distant detail), textures a quarter the size, the 3D drawn at 768x432 with the
@@ -126,6 +127,7 @@ equipment, and the Space it sends pauses the emulator (Space again resumes; the 
 | `KYTY_DECK_DECALS=1` | Projected decals (blood, scorch marks) back on (~7% slower) |
 | `KYTY_DECK_GI_UPDATES=1` | Global illumination updated in play again, as the game does (6-22% slower; off by default, the level's lighting as it loads) |
 | `KYTY_FILE_OFFLOAD=0` | Game-file copies kept in RAM (on by default: dropped and read back from the files when touched, ~1 GB less RAM in play, fewer swap stalls) |
+| `KYTY_ASYNC_DRAW_PIPELINES=0` | A draw whose shaders are not compiled yet waits for them (the first visit's freezes of 0.1-0.8 s) instead of being left out for those frames (on by default) |
 | `KYTY_RENDER_HEIGHT=360` | A softer 3D (640x360; ~10% faster than the default 432) |
 | `KYTY_DECK_SHARPEN=game` | The game's TAA history sharpening back on (crisper, but crawling edges); `off` no sharpening (soft) |
 | `KYTY_DECK_FRAMEGEN=off` | No frame generation (default: Lossless Scaling's lsfg-vk when installed, its profile `kytyps5-des`; `flow_scale = 0.8` with `performance_mode = true` there: 0.5 is lighter but flickers the character when the camera turns) |

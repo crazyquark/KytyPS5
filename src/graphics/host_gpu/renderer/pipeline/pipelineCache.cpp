@@ -4723,6 +4723,20 @@ PipelineCache::Pipeline* PipelineCache::CreateGraphicsPipelineImpl(
 			if (indexed) {
 				m_native_graphics_pipelines.emplace(iter->first, iter->second.get());
 			}
+			// A normal draw's (KYTY_ASYNC_DRAW_PIPELINES) recorded for the warmup as one made on the render thread.
+			if (!native_bindings) {
+				LocalShaderWarmup::PipelineRecord recipe;
+				recipe.vertex = m_program_cache->RecordedIndex(vertex_program);
+				recipe.pixel  = ps_active ? m_program_cache->RecordedIndex(pixel_program) : LocalShaderWarmup::NoShader;
+				recipe.rendering    = iter->first.rendering;
+				recipe.vertex_input = iter->first.vertex_input;
+				recipe.state        = iter->first.static_params;
+				if (recipe.vertex != LocalShaderWarmup::NoShader &&
+				    (!ps_active || recipe.pixel != LocalShaderWarmup::NoShader)) {
+					m_program_cache->warmup.AddPipeline(recipe);
+					iter->second->recipe = LocalShaderWarmup::RecipeKey(recipe);
+				}
+			}
 			return iter->second.get();
 		}
 		auto job             = std::make_shared<PendingGraphicsPipeline>();
