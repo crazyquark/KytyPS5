@@ -18,7 +18,8 @@ settings=(KYTY_RENDER_HEIGHT=360 KYTY_HD_OUTPUT=1 KYTY_TEXTURE_REDUCE=2 KYTY_PRE
 	KYTY_RENDER_CORE=2)
 # Game Mode (gamescope): a window Steam did not start is not shown. The emulator's window is tagged as a game (STEAM_GAME)
 # and made the base layer gamescope shows; Steam's own (769) again when the tour ends.
-gamescope_session() { pgrep -x gamescope >/dev/null && DISPLAY=:0 xprop -root GAMESCOPE_FOCUSED_APP >/dev/null 2>&1; }
+# (gamescope-wl: the process name of newer gamescope builds.)
+gamescope_session() { pgrep -x "gamescope(-wl)?" >/dev/null && DISPLAY=:0 xprop -root GAMESCOPE_FOCUSED_APP >/dev/null 2>&1; }
 show_game() {
 	gamescope_session || return 0
 	local window
