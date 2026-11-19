@@ -35,6 +35,11 @@ namespace Libs::Graphics::ShaderRecompiler {
 
 namespace {
 
+// The decoded instructions of the thread's last program, their capacity kept for its next one (up to 8 MiB,
+// TranslateProgram): a new vector of ~0.8 MiB for every program was memory the system had to zero-fill (the shader
+// prefetch's threads: 5 GB a minute). ReleaseThreadScratch gives it back.
+thread_local std::vector<Decoder::Instruction> t_instructions;
+
 const char* GetDumpLabel(const CompileOptions& options) {
 	return options.dump_label != nullptr ? options.dump_label : "ShaderRecompiler";
 }
@@ -605,9 +610,7 @@ TranslateResult TranslateProgram(std::span<const uint32_t> code, const CompileOp
 	     GetDumpLabel(options), StageName(options.stage), options.shader_hash,
 	     static_cast<uint64_t>(code.size()));
 
-	// The decoded instructions go in the thread's vector of its last program's, its capacity kept (up to 8 MiB): a new one
-	// of ~0.8 MiB for every program was memory the system had to zero-fill (the shader prefetch's threads: 5 GB a minute).
-	static thread_local std::vector<Decoder::Instruction> t_instructions;
+	// The decoded instructions go in the thread's vector of its last program's (t_instructions), its capacity kept.
 	Decoder::Program decoded;
 	decoded.instructions = std::move(t_instructions);
 	struct KeepInstructions {
@@ -755,7 +758,8 @@ TranslateResult TranslateProgram(std::span<const uint32_t> code, const CompileOp
 		LOGF("%s native IR before resource tracking:\n%s", GetDumpLabel(options),
 		     IR::ProgramToString(ir).c_str());
 	}
-	IR::TrackResources(ir);
+	IR::TrackResources(ir, options.stage == ShaderType::Pixel &&
+	                           (Frontend::TranslatorFeatureSet() & Frontend::TranslatorFeaturePixelInterlock) != 0);
 	IR::EliminateDeadCode(ir.blocks);
 	TranslateResult result;
 	result.program = std::move(ir);
@@ -809,7 +813,8 @@ CompileResult CompileProgram(TranslateResult translated, const CompileOptions& o
 	ir.pixel_quad_reads = (Frontend::TranslatorFeatureSet() & Frontend::TranslatorFeaturePixelQuadReads) != 0;
 	ir.unfused_mad = (Frontend::TranslatorFeatureSet() & Frontend::TranslatorFeatureUnfusedMad) != 0;
 	ir.amd_barycentrics = (Frontend::TranslatorFeatureSet() & Frontend::TranslatorFeatureAmdBarycentrics) != 0;
-	IR::AllocateBindings(ir, push_data_start_dword, options.enable_lod_stats);
+	IR::AllocateBindings(ir, push_data_start_dword, options.enable_lod_stats,
+	                     options.table_mode && options.table_dead_user_data);
 	DumpShaderIr(options, ir);
 	Spirv::AnalyzeProgramRequirements(ir);
 	std::string ir_dump;
@@ -842,6 +847,11 @@ CompileResult CompileProgram(TranslateResult translated, const CompileOptions& o
 
 void RecycleSpirv(std::vector<uint32_t>&& spirv) {
 	Spirv::Builder::Recycle(std::move(spirv));
+}
+
+void ReleaseThreadScratch() {
+	std::vector<Decoder::Instruction>().swap(t_instructions);
+	Spirv::ReleaseThreadScratch();
 }
 
 } // namespace Libs::Graphics::ShaderRecompiler

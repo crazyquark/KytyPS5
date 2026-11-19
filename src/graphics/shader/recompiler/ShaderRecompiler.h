@@ -21,6 +21,9 @@ struct CompileOptions {
 	bool                        early_dump                 = false;
 	bool                        enable_lod_stats           = false;
 	bool                        table_mode                 = false; // IR::EnterTableMode
+	// Table mode: user data that do not fit the push constants laid out again without the registers only handles the
+	// table module emits nothing for read (IR::AllocateBindings; KYTY_TABLE_DEAD_USER_DATA, the renderer sets it).
+	bool                        table_dead_user_data       = false;
 	const char*                 dump_label                 = nullptr;
 	std::span<const uint32_t>   user_data;
 	std::span<const uint32_t>   back_code;
@@ -53,6 +56,10 @@ void SetDeviceStorageBufferBounds(bool enabled);
 	                                       uint32_t push_data_start_dword = 0);
 // A CompileResult's SPIR-V the caller is done with: the thread's next CompileProgram writes its module there.
 void RecycleSpirv(std::vector<uint32_t>&& spirv);
+// The calling thread's translation scratch back to the heap: the buffers TranslateProgram and CompileProgram keep for
+// the thread's next program (decoded instructions, SPIR-V sections and definitions; up to ~8 MiB each), for a thread
+// done translating for a while.
+void ReleaseThreadScratch();
 
 } // namespace Libs::Graphics::ShaderRecompiler
 

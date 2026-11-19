@@ -1,104 +1,133 @@
 ## New in this build
 
-Your precompiled shaders stay valid: the shader translation is the same as in v20261110, except on AMD Radeon RX
-400/500 and Vega cards (the first item below). Precompile again after updating on such a card.
+Your precompiled shaders stay valid. On graphics cards with the pixel interlock, precompiling once more brings the
+decal fix below (only those shaders are compiled again).
 
-- **RX 400/500 / Vega: corrupted cutscenes and movies** (#305, credit @FKF-GR): these cards run compute shaders only on
-  64-lane subgroups, and the emulator emulated the game's 64-lane waves on 32-lane ones there, so two waves shared one
-  subgroup. Compute programs now run natively at 64 lanes on such cards. Precompile again after updating.
-- **Cards with 12 GB of video memory or less: fewer hitches** (#85, credit @brokeneggg): the game streamed its large
-  textures whole even where the graphics card leaves their largest levels out, so the game's threads decoded and kept
-  levels nothing drew. They are now streamed without those levels whatever the RAM. A 6 GB card with 24 GB of RAM
-  (simulated, an hour of world changes): slow frames 163 -> 31, the worst frame 149 -> 60 ms, RAM growth +384 -> +21 MiB
-  an hour. `-Set KYTY_TEXTURE_REDUCE_GAME=0` streams them whole as before.
-- **Version 1.005: the freeze at King Allant's fog gate** (#327, credit @Lukeyrich for the log and the save): a guard
-  the emulator adds to the game's resource loader on 1.005 (for #185/#204) could loop forever on a broken list entry.
-  It now rebuilds that list and the loader carries on (the log says "loader guard: list ... rebuilt").
-- **Xbox controllers: View opens the Toolbelt again** (#328, credit @kms810530-arch): the game opens it only when the
-  touch pad click comes with a finger on the pad, as a DualSense reports it; View now sends both.
-- **Game code runs with the PS5's floating-point settings** (port of upstream KytyPS5 f399d481 by Nawid3333): guest
-  threads and fibers use the console's MXCSR (flush-to-zero, denormals-are-zero) instead of Windows' defaults. No
-  speed change measured on the test PC. `-Set KYTY_GUEST_FP_ENV=0` restores the old behaviour.
-- **Parallel translation (`KYTY_SPECULATE=4`, experimental): five fixes** (PRs #321 and #329, credit @CarpetHead): two
-  races that could hand the GPU a stale buffer address, a freeze when a worker waited for GPU work only the render thread
-  submits, an abort at area loads, and an exit on a rewritten command buffer.
-- **Faster at 1-1**: the build's profile-guided optimization was trained again on this code: 1-1 at 120 fps on an RTX
-  5090, 69.2 -> 73.6 fps (the render thread 13.8 -> 13.3 ms a frame); Latria and the arena unchanged. Protection changes
-  of guest memory also find their mapping faster, and the render thread no longer reads its switches from the cache
-  lines the scout thread keeps writing.
-- **Linux: FSR 4 on Radeon cards** (PR #330, credit @Bipboop-beep): an opt-in for builds from source. `get-fsr4-linux.sh`
-  builds ffx-vk-linux, which runs AMD's Windows FSR DLLs (you supply them, see the README), and the Linux launcher then
-  offers "FSR 4". The release packages are built without it: there `KYTY_FSR4=1` logs why and FSR 3 is used.
-- **Steam Deck guide**: how to update an existing install (#240).
-- **Thanks** to @CarpetHead, @Bipboop-beep and @DevList1454 for the pull requests, and to @FKF-GR, @brokeneggg,
-  @Lukeyrich and @kms810530-arch for the logs, saves and tests.
+- **Overlapping decals: the flickering square holes are fixed** (#341, #315): the candle wax in the Nexus and the marks
+  at the foot of 1-3's walls showed holes of 2x2 pixels, different every frame. The game's decals read the surface data
+  under them and write it back, one decal after another. The PS5 keeps them in order for each pixel, but a PC graphics
+  card ran several at once, so a decal could overwrite the one before it. On cards with the pixel interlock (NVIDIA,
+  Intel, and AMD on Linux with RADV) these shaders now run in pixel order, as on the PS5. No measurable cost (RTX 5090
+  at the 120 Hz cap, without -> with: 1-1 66.8 -> 68.9 fps, Latria 73.9 -> 74.0, the 1-1 arena 113.1 -> 113.7; RX 9070 XT
+  on Linux 60.0 -> 59.6).
+  - **If you have already precompiled:** press Precompile on the launcher's Shaders page once more. Only the decal
+    pipelines are compiled again; until then the game runs exactly as before. A new install gets the fix with its
+    first precompile. `-Set KYTY_PIXEL_INTERLOCK=1` turns it on without a precompile; each decal shader then compiles
+    the first time it appears, with a short stutter.
+  - **AMD on Windows:** the driver has no pixel interlock. `-Set KYTY_DRAW_READ_AFTER_WRITE=1` is still the workaround
+    (each decal waits for the one before; it costs frame rate where there are hundreds of decals).
+  - `-Set KYTY_PIXEL_INTERLOCK=0` turns the fix off.
+- **HDR: highlights fitted to your display** (PR #350, credit @Mustard-Tiger): at the game's default brightness its HDR
+  highlights reach 2,500–3,000 nits, and a monitor clips everything above its own peak, so their detail was lost. With
+  HDR on, the brightest part is now compressed into the display's peak (the BT.2390 curve, colours kept); darker and
+  middle tones stay as they were. Windows supplies the display's peak (from the monitor, or from the Windows HDR
+  Calibration app once you have run it). `-HdrMaxNits` sets the peak by hand; `-HdrSourceNits 0` brings back the old
+  clipping. SDR is unchanged.
+- **Less memory:** the emulator no longer keeps data it never reads again: the shader prefetch's pipeline recipes, a
+  second copy of the warmup recording, an 8 MiB read window on every game thread that once read a large file from a
+  .zar, the system font files (now read in place), a second copy of the ~224,000 file paths the game looks up, and the
+  shader translator's work buffers once it is idle. At the start of 1-1 with the 16 GB PC settings (simulated, RTX
+  5090), the emulator's heap is about 0.4 GB smaller and its working set about 0.45 GB smaller than in v20261117. The
+  frame rate is the same.
+- **A rare ordering gap closed** (credit @CarpetHead, who found it while reviewing the code for #349): a copy the game
+  asks the GPU for (made on the CPU here) could change bytes that earlier work still had to upload, so that work used
+  the new bytes instead of the old. Such work now finishes before the copy. No visible case is known; no cost measured.
+- **Linux: GPU fault reports name the memory at the faulting address** (PR #353, credit @Bios2000): when the GPU faults
+  (the game closes with "device lost"), the log now lists what was bound last at the faulting address, from the
+  driver's own reports (RADV; `-Set KYTY_FAULT_BINDINGS=1` with other drivers). This is to track down #314.
+- **Thanks** to @Bios2000 for the RADV tests and the fault report, @Mustard-Tiger for the HDR work, @CarpetHead for
+  spotting the copy gap, and @zezoman and @robbely for the decal reports.
 
-## New in v20261110
+## New in v20261117
 
-Your precompiled shaders stay valid: the shader translation is the same as in v20261109, except on AMD's older driver
-for Radeon RX Vega and Polaris cards (the first item below).
+Your precompiled shaders stay valid: the shader translation is the same as in v20261116.
 
-- **RX Vega / Polaris with AMD's older driver: the black title screen** (#305, credit @FKF-GR): that driver ("AMD
-  proprietary shader compiler" in the log's GPU line) refused every pipeline of 173 of the game's pixel shaders, the
-  ones that read the GPU's barycentric coordinates without per-vertex values, the picture's post-processing among them.
-  On that driver these shaders now get the same coordinates through AMD's own extension
-  (VK_AMD_shader_explicit_vertex_parameter), which it lists. Other graphics cards translate them as before. Precompile
-  again after updating on such a card. We could not run AMD's older driver here (the shaders pass validation and AMD's
-  own compiler for Vega takes them), so please tell us in #305 whether the title shows.
-- **New, experimental: parallel translation** (PR #293, credit @CarpetHead): with `-Set KYTY_SPECULATE=4` (run.cmd, or
-  the launcher's Advanced > Extra options, "Command-line options"), worker threads translate the game's GPU work ahead
-  of the render thread, which then only checks and commits it. Where the render thread limits the frame rate it is
-  faster: +6% to +16% over the worlds in the author's test at 120 fps (Core i9-12900K, RTX 5090). It needs 28 GB of RAM
-  or more (about 3.6 GB more than without it) and at least 9 logical CPUs on the performance cores; on other PCs it
-  stays off and the log says why. Off by default; without it the emulator runs as before. Tested on Windows only.
-- **A little faster**: the build's profile-guided optimization was trained again on this code. 1-1 at 120 fps on an
-  RTX 5090: 70.3 -> 72.5 fps (the render thread 13.9 -> 13.4 ms a frame); Latria and the arena unchanged.
-- **Thanks** to @CarpetHead for the pull request and the many rounds of measurements, and to @FKF-GR for the logs.
+- **Malwarebytes no longer flags the launcher** (#346, PR #348, credit @DevList1454): its machine-learning check
+  reported every `KytyLauncher.exe` since v20261105 as "MachineLearning/Anomalous". It reacted to compressed image data
+  inside the exe (the keyboard prompt textures), which a program unpacks and writes like a dropper would. They are
+  stored uncompressed now; the launcher works the same, and the exe is 3.3 MB instead of 0.35 MB (the download barely
+  changes).
+- **Parallel translation (`KYTY_SPECULATE=4`, experimental)**, a round by @CarpetHead (PR #342):
+  - crossing into a new area stutters much less: in a fixed 18 s run across an area boundary in 1-3 (6 runs each, RTX
+    5090), the ten frames after the crossing spent 139 -> 77 ms above the calm frame time, and the crossing frame took
+    66 -> 55 ms. The commit of a translation now finishes more of its own work instead of stopping, its checks are
+    exact, and the game's memory calls at a crossing no longer wait on the GPU thread.
+  - with "Up to 120 fps" on, 13–29% of the frames at 5-1 were held to two refreshes (a frame a worker translated was not
+    marked as the 3D view); now none are.
+  - about a quarter of the boots had a storm of write faults (one page faulting every frame, about 3 fps lost per 100
+    faults a frame); it no longer happens in this mode.
+  - the write guard's wait for a written label no longer takes its lock over and over, which could hold up the upload
+    worker that releases the label (seen as frames of 40–280 ms waiting for uploads in some test runs; they did not
+    come back in the later runs with or without the change, so this one is unmeasured).
+  - Linux (PR #345, credit @Bios2000): after a load step the game could crawl at about 5 fps or freeze. A page the write
+    guard had protected was left without access and without an owner; this was also the cause of #289.
+  - the default mode runs as before: everything above is off there.
+- **Linux: NVMe power saving** (#343, credit @Bipboop-beep): if the game stalls for up to seconds at a time while it
+  loads textures, with the SSD busy but reading little, the drive's power saving (APST) may be waking it too slowly. The
+  package README now names the kernel parameter that turns it off (`nvme_core.default_ps_max_latency_us=0`).
+- **Performance profile retrained** on the new code, so the default mode keeps its speed (RTX 5090, 120 Hz cap): the
+  1-1 start 68.0 fps against 66.1 before this round, the 1-1 arena 114.6 against 112.9 with the old profile, Latria the
+  same.
+- **Thanks** to @CarpetHead for the parallel translation round, @Bios2000 for the Linux runs that found the write guard
+  bug, @DevList1454 for tracking down the Malwarebytes flag, @Bipboop-beep for the NVMe measurements, and @Osbrin for
+  the report.
 
 ## 本版本的变化
 
-已有的预编译着色器继续有效：着色器翻译结果和 v20261110 相同，只有 AMD Radeon RX 400/500 和 Vega 显卡例外（见第一条）。
-这类显卡更新后请重新预编译。
+已有的预编译着色器继续有效。在支持像素互锁（pixel interlock）的显卡上，再预编译一次即可获得下面的贴花修复（只会重新编译
+这部分着色器）。
 
-- **RX 400/500 / Vega：过场动画和视频花屏**（#305，感谢 @FKF-GR）：这类显卡的计算着色器只能用 64 通道的子组运行，
-  而模拟器在上面把游戏的 64 通道波次模拟在 32 通道的子组上，两个波次挤在同一个子组里。现在这类显卡上的计算程序直接以
-  64 通道原生运行。更新后请重新预编译。
-- **显存 12 GB 及以下的显卡：卡顿更少**（#85，感谢 @brokeneggg）：显卡本来就不保留大纹理最大的那一两级，游戏却仍然整张
-  流送这些纹理，游戏线程解码并保存了没有任何绘制会用到的层级。现在不管内存多大，都不再流送这些层级。6 GB 显卡 + 24 GB
-  内存（模拟，切换世界一小时）：慢帧 163 -> 31，最慢一帧 149 -> 60 ms，内存增长每小时 +384 -> +21 MiB。
-  `-Set KYTY_TEXTURE_REDUCE_GAME=0` 恢复整张流送。
-- **1.005 版：King Allant 雾门前卡死**（#327，感谢 @Lukeyrich 提供日志和存档）：模拟器为 1.005 的资源加载器加的保护
-  （为 #185/#204 而加）遇到损坏的链表项时会无限循环。现在它会重建这个链表，加载器继续工作（日志会写
-  “loader guard: list ... rebuilt”）。
-- **Xbox 手柄：View 键重新能打开工具栏（Toolbelt）**（#328，感谢 @kms810530-arch）：游戏只在触摸板按下时同时有手指触点
-  才打开它，就像 DualSense 报告的那样；现在 View 键两样都发。
-- **游戏代码使用 PS5 的浮点设置**（移植自上游 KytyPS5 的 f399d481，作者 Nawid3333）：guest 线程和 fiber 使用 PS5 的 MXCSR
-  （清零非规格化数），不再用 Windows 的默认值。测试电脑上速度没有变化。`-Set KYTY_GUEST_FP_ENV=0` 恢复旧行为。
-- **并行翻译（`KYTY_SPECULATE=4`，实验功能）：五项修复**（PR #321、#329，感谢 @CarpetHead）：两处可能让 GPU 拿到过期
-  缓冲区地址的竞争、工作线程等待只有渲染线程才会提交的 GPU 工作而卡死、切换区域时的中止，以及命令缓冲区被改写时的退出。
-- **1-1 更快**：重新训练了这个版本的 PGO（按运行情况优化）。RTX 5090 在 1-1、120 fps 下：69.2 -> 73.6 fps（渲染线程每帧
-  13.8 -> 13.3 ms）；Latria 和竞技场不变。另外 guest 内存的保护调用也能更快找到对应的映射；渲染线程读的开关也不再和
-  scout 线程不停写入的变量挤在同一条缓存行上。
-- **Linux：Radeon 显卡可用 FSR 4**（PR #330，感谢 @Bipboop-beep）：从源码编译时可选。`get-fsr4-linux.sh` 会编译
-  ffx-vk-linux，用它运行 AMD 的 Windows 版 FSR DLL（需要自己准备，见 README），之后 Linux 启动器会提供“FSR 4”。
-  发布包不含这项：在发布包里设 `KYTY_FSR4=1` 会在日志里说明原因并使用 FSR 3。
-- **Steam Deck 指南**：补充了如何更新已有安装（#240）。
-- **感谢** @CarpetHead、@Bipboop-beep 和 @DevList1454 的 PR，以及 @FKF-GR、@brokeneggg、@Lukeyrich、@kms810530-arch 提供的日志、存档和测试。
+- **重叠贴花的闪烁方块修复了**（#341、#315）：Nexus 的蜡烛蜡油、1-3 墙脚的痕迹上会出现 2x2 像素的小洞，每帧位置都不同。
+  游戏的贴花会读取下方的表面数据再写回去，一个接一个地画。PS5 对每个像素按顺序执行，而 PC 显卡会同时执行好几个，于是
+  后一个贴花可能覆盖前一个的结果。在支持像素互锁的显卡上（NVIDIA、Intel，以及 Linux 上使用 RADV 的 AMD），这些着色器
+  现在按像素顺序执行，和 PS5 一样。没有可测的性能开销（RTX 5090，120 Hz 上限，关闭 -> 开启：1-1 66.8 -> 68.9 fps，
+  Latria 73.9 -> 74.0，1-1 竞技场 113.1 -> 113.7；Linux 上 RX 9070 XT 60.0 -> 59.6）。
+  - **已经预编译过的：** 在启动器的"着色器"页再点一次"预编译"。只会重新编译贴花相关的管线；在此之前游戏和以前完全一样。
+    新安装的在第一次预编译时就会带上这个修复。`-Set KYTY_PIXEL_INTERLOCK=1` 不预编译也能开启，之后每个贴花着色器第一次
+    出现时会编译一次，有短暂卡顿。
+  - **Windows 上的 AMD 显卡：** 驱动没有像素互锁，仍可用 `-Set KYTY_DRAW_READ_AFTER_WRITE=1` 规避（每个贴花等前一个画完，
+    贴花很多的地方会掉帧）。
+  - `-Set KYTY_PIXEL_INTERLOCK=0` 关闭这个修复。
+- **HDR：高光按显示器亮度压缩**（PR #350，感谢 @Mustard-Tiger）：游戏默认亮度下 HDR 高光可达 2500–3000 尼特，而显示器会
+  把超过自身峰值的部分全部截掉，高光细节因此丢失。开启 HDR 时，现在会把最亮的部分压缩到显示器的峰值以内（BT.2390 曲线，
+  保持色彩），暗部和中间调不变。显示器的峰值由 Windows 提供（来自显示器本身，或运行过 Windows HDR 校准应用后的数值）。
+  `-HdrMaxNits` 可手动指定峰值，`-HdrSourceNits 0` 恢复旧的截断方式。SDR 不受影响。
+- **内存占用更少：** 模拟器不再保留之后用不到的数据：着色器预取的管线配方、预热录制的第二份拷贝、每个从 .zar 读过大文件
+  的游戏线程各自保留的 8 MiB 读取窗口、系统字体文件（现在直接映射读取）、游戏查找的约 22.4 万个文件路径的第二份拷贝，
+  以及着色器翻译器空闲后的工作缓冲。在 1-1 起点按 16 GB 电脑的设置测试（模拟，RTX 5090）：和 v20261117 相比，模拟器的
+  堆内存少约 0.4 GB，工作集少约 0.45 GB。帧率不变。
+- **修复一个罕见的顺序问题**（感谢 @CarpetHead 在 #349 中审阅代码时发现）：游戏交给 GPU 的复制（这里在 CPU 上完成）可能
+  改写之前的工作还没上传的数据，那份工作就会用到新数据而不是旧数据。现在这些工作会在复制之前完成。目前没有已知的可见
+  问题，也没有测到开销。
+- **Linux：GPU 故障报告会写出故障地址上的内存**（PR #353，感谢 @Bios2000）：GPU 出错（游戏以 "device lost" 结束）时，
+  日志现在会根据驱动自己的报告，列出故障地址上最后绑定的内存（RADV；其他驱动用 `-Set KYTY_FAULT_BINDINGS=1`）。用于排查
+  #314。
+- **感谢** @Bios2000 的 RADV 测试和故障报告功能，@Mustard-Tiger 的 HDR 改进，@CarpetHead 发现的复制问题，以及 @zezoman
+  和 @robbely 的贴花报告。
 
-## v20261110 的变化
+## v20261117 的变化
 
-已有的预编译着色器继续有效：着色器的翻译与 v20261109 相同，只有 Radeon RX Vega、Polaris 显卡使用 AMD 旧驱动时例外
-（见第一条）。
+已有的预编译着色器继续有效：着色器翻译结果和 v20261116 相同。
 
-- **RX Vega / Polaris 配 AMD 旧驱动：标题画面黑屏**（#305，感谢 @FKF-GR）：这个驱动（日志 GPU 一行写着“AMD
-  proprietary shader compiler”）会拒绝游戏中 173 个像素着色器的全部管线，也就是读取 GPU 重心坐标、但不读逐顶点数据的
-  那些，画面的后处理也在其中。现在在这个驱动上，这些着色器改用 AMD 自己的扩展（VK_AMD_shader_explicit_vertex_parameter，
-  驱动有列出）取得同样的坐标，其他显卡的翻译不变。这类显卡更新后请重新预编译。我们这里没法运行 AMD 的旧驱动（这些着色器
-  通过了校验，AMD 自己的 Vega 编译器也能编译），所以请在 #305 告诉我们标题画面是否正常显示。
-- **新增实验功能：并行翻译**（PR #293，感谢 @CarpetHead）：加上 `-Set KYTY_SPECULATE=4`（run.cmd，或启动器的高级 >
-  附加参数“命令行参数”）后，工作线程会提前翻译游戏的 GPU 工作，渲染线程只需检查并提交。在渲染线程限制帧率的地方会更快：
-  作者在 120 fps 下逐个世界测试，提升 6% 到 16%（Core i9-12900K、RTX 5090）。需要 28 GB 以上内存（比不开多用约 3.6 GB），
-  以及性能核上至少 9 个逻辑处理器；不满足的电脑上它不会开启，日志会说明原因。默认关闭，不开时模拟器和以前一样。目前只在 Windows 上测试过。
-- **稍快一些**：重新训练了这个版本的 PGO（按运行情况优化）。RTX 5090 在 1-1、120 fps 下：70.3 -> 72.5 fps（渲染线程
-  每帧 13.9 -> 13.4 ms）；Latria 和竞技场不变。
-- **感谢** @CarpetHead 的 PR 和多轮测量，以及 @FKF-GR 提供的日志。
+- **Malwarebytes 不再误报启动器**（#346，PR #348，感谢 @DevList1454）：从 v20261105 起，Malwarebytes 的机器学习检测
+  把每个版本的 `KytyLauncher.exe` 都报为 "MachineLearning/Anomalous"。触发它的是 exe 里压缩存放的图片数据（键位提示
+  贴图）：程序把一段压缩数据解开再写到磁盘，看起来像是释放器。现在这些贴图不再压缩存放；启动器功能不变，exe 从 0.35 MB
+  变成 3.3 MB（下载包大小几乎不变）。
+- **并行翻译（`KYTY_SPECULATE=4`，实验功能）**，@CarpetHead 的一轮改进（PR #342）：
+  - 进入新区域时的卡顿明显减少：在 1-3 跨越区域边界的固定 18 秒路线上（每边 6 次，RTX 5090），跨越后 10 帧比平稳帧多出的
+    总时间 139 -> 77 ms，跨越那一帧 66 -> 55 ms。翻译的提交现在会把更多工作自己做完而不是中途停下，检查改为精确判断，
+    跨越时游戏的内存调用也不再等待 GPU 线程。
+  - 开启"最高 120 帧"时，5-1 有 13–29% 的帧被压到两个刷新周期（工作线程翻译的那一帧没有被标记为 3D 画面）；现在没有了。
+  - 大约四分之一的启动会出现写入异常风暴（同一页每帧都触发异常，每帧每 100 次异常约损失 3 fps）；这个模式下不再出现。
+  - 写保护在等待已写入的标签时不再反复加锁，以前这可能拖住负责解除标签保护的上传线程（部分测试运行中出现过 40–280 ms
+    等待上传的帧；之后的运行中无论有没有这项改动都没有再出现，所以这一项没有测量数字）。
+  - Linux（PR #345，感谢 @Bios2000）：读图的某一步之后，游戏可能只有约 5 fps 或直接卡住：写保护保护过的某一页被留成了
+    不可访问且没有任何组件负责恢复；这也是 #289 的原因。
+  - 默认模式不受影响：以上改动在默认模式下都不生效。
+- **Linux：NVMe 节能**（#343，感谢 @Bipboop-beep）：如果读贴图时游戏一次卡顿最长达数秒，而硬盘很忙却几乎没读多少数据，
+  可能是硬盘的节能功能（APST）唤醒太慢。Linux 包的 README 里现在写了关闭它的内核参数
+  （`nvme_core.default_ps_max_latency_us=0`）。
+- **重新训练了性能配置文件（PGO）**，适配新代码，默认模式保持原来的速度（RTX 5090，120 Hz 上限）：1-1 起点 68.0 fps，
+  这一轮改动之前是 66.1；1-1 竞技场 114.6，旧配置文件下是 112.9；Latria 不变。
+- **感谢** @CarpetHead 的并行翻译改进，@Bios2000 在 Linux 上的测试找出了写保护的问题，@DevList1454 查明了 Malwarebytes
+  误报的原因，@Bipboop-beep 提供了 NVMe 的测量数据，以及 @Osbrin 的报告。

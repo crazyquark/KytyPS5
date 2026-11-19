@@ -119,6 +119,11 @@ stay at 60.
 "VSync" (off by default) waits for the display's refresh, so the picture does not tear; displays with
 adaptive sync (G-SYNC, FreeSync) keep it. "HDR" (off by default) outputs HDR10 when "Use HDR" is on for the
 display in Windows' display settings (the game is told the TV takes HDR); otherwise the picture stays SDR.
+Games that ask for the HDR calibration are told the display's brightness as Windows reports it (the display's own
+figures, or the Windows HDR Calibration app's once it was run), 1000 nits where the display reports none
+(`-HdrMaxNits` sets it by hand). Demon's Souls does not ask: its highlights go to thousands of
+nits, which most monitors clip. The emulator fits them to the display's peak (the BT.2390 roll-off TVs use), leaving
+the darker part of the picture as the game made it; `-HdrSourceNits 0` shows the game's picture as it is.
 "Low latency" (off by default) keeps one finished frame waiting for the screen instead of about two, so what you
 press shows sooner: at 60 Hz about 15-23 ms from the game's frame to the screen instead of about 30. A frame that
 comes late is then no longer covered by a waiting one, so the frame pacing is a little less even.
@@ -260,6 +265,8 @@ shortcut):
 | `-PresentMode Fifo` | VSync on (the launcher's "VSync") |
 | `-LowLatency` | Less input lag: one frame waiting for the screen instead of about two (the launcher's "Low latency") |
 | `-Hdr` | HDR10 output when Windows' "Use HDR" is on for the display |
+| `-HdrMaxNits 800` | With `-Hdr`: the peak brightness the game tones its HDR picture to, in nits (also `-HdrFullFrameNits`, `-HdrMinNits`; default: what Windows reports for the display, else 1000, 80 and 0) |
+| `-HdrSourceNits 4000` | With `-Hdr`: the brightest highlight the game's picture is taken to reach, fitted to the display's peak (default 10000; lower keeps more of the picture as it is but flattens the brightest highlights; 0 turns the fitting off) |
 | `-Upscaler dlss` | DLSS super resolution through the game's PS5 Pro path (NVIDIA RTX, needs Streamline: see "Upscaler" above) |
 | `-Upscaler fsr` | The same with AMD FSR 3, built in: any graphics card |
 | `-Set KYTY_DLSS_SHARPNESS=0.6` | With `-Upscaler dlss`: DLSS's picture sharpened, 0 to 1 (the launcher's "Sharpening": Low 0.3, Medium 0.6, High 0.9; none by default) |
@@ -355,6 +362,8 @@ There are two levels of preparation, both specific to the graphics card and driv
      laptop (Ryzen 9 5900HX), longer with fewer threads. The CPU is fully loaded meanwhile: running it
      overnight is a good idea. Once "ready to play" shows (about halfway), what play needs is in place
      and the game can be started; the rest follows.
+   - The window says what it is doing (first planning, a few minutes with fewer threads), then shows the progress
+     every minute while it compiles: `shards: 120 of 1096 done (10%), 8 running, 968 waiting`.
    - Closing the window stops it; running it again continues where it stopped.
    - If the graphics driver never finishes compiling a pipeline (reported on an AMD card), the precompile leaves
      that pipeline out after 5 minutes and carries on; at the end it lists them in the logs folder
@@ -483,12 +492,17 @@ hurts.
   little to fill the gaps instead of cutting out (`-Set KYTY_AUDIO_STRETCH=0` turns that off).
 - It uses a lot of memory and video memory: on PCs with too little it may just exit.
 - Small square holes that come and go where the game's decals overlap: the candle wax in the Nexus, the bottom of
-  some castle walls in 1-3 (issue #315). The game blends each decal into what the one before it left, without a
-  barrier between them; the PS5 runs them nearly in order, a PC graphics card at the same time.
-  `run.cmd -Set KYTY_DRAW_READ_AFTER_WRITE=1` (or `-Set KYTY_DRAW_READ_AFTER_WRITE=1` in the launcher's Advanced >
-  "Command-line options") orders them and the holes go, but where there are hundreds of decals the frame rate can
-  drop by up to ~15% (Boletaria's start without the 60 fps cap: 73 -> 61 fps on an RTX 5090; at 60 fps it still
-  held 60 there). Off by default.
+  some castle walls in 1-3 (issues #315, #341). The game blends each decal into what the one before it left, without a
+  barrier between them; the PS5 runs them nearly in order, a PC graphics card at the same time. Where the graphics
+  card has the pixel interlock (`VK_EXT_fragment_shader_interlock`: NVIDIA, Intel, AMD with Linux' RADV) the decals
+  now run in order per pixel, and the holes are gone (no cost measured on an RTX 5090). Shaders you precompiled
+  before stay as they are until your next precompile, which brings it (Precompile on the launcher's Shaders page:
+  only what is new is compiled); until then `-Set KYTY_PIXEL_INTERLOCK=1` uses it at once (those pipelines are then
+  compiled the first time the game draws them), and `-Set KYTY_PIXEL_INTERLOCK=0` turns it off. AMD's Windows driver
+  has no interlock: there `run.cmd -Set KYTY_DRAW_READ_AFTER_WRITE=1` (or `-Set KYTY_DRAW_READ_AFTER_WRITE=1` in the
+  launcher's Advanced > "Command-line options") orders the decals with barriers instead, but where there are hundreds
+  of decals the frame rate can drop by up to ~15% (Boletaria's start without the 60 fps cap: 73 -> 61 fps on an RTX
+  5090; at 60 fps it still held 60 there). With the interlock that switch is not needed.
 - NVIDIA's Low Latency Mode **Ultra** (NVIDIA Control Panel) makes the emulator's presents wait: uneven frame times
   (RTSS and the emulator's panel disagree) and fewer frames (issue #129). Set Low Latency Mode to Off or On for
   `kyty_emulator.exe` (Manage 3D settings > Program Settings).
